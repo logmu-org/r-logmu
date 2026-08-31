@@ -18,4 +18,25 @@ library(logmu)
 # it in every test log, including a truncated one.
 cat("logmu SIMD tier:", vec_active_tier(), "with", vec_active_lanes(), "lanes\n")
 
-test_check("logmu")
+# TEMPORARY, 2026-08-31: name each file as it starts, flushed.
+#
+# A Windows CI runner dies during the suite with no testthat output at all --
+# stdout is buffered and the buffer goes with the process -- so there is nothing
+# to say which file it reached. This subclass keeps the check reporter's
+# behaviour and adds one flushed line per file, which survives a crash.
+#
+# Remove once the failure is located.
+LoudCheck <- R6::R6Class(
+  "LoudCheck",
+  inherit = testthat::CheckReporter,
+  public = list(
+    start_file = function(filename) {
+      cat("[file]", filename, "
+")
+      flush(stdout())
+      super$start_file(filename)
+    }
+  )
+)
+
+test_check("logmu", reporter = LoudCheck$new())
