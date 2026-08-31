@@ -1,0 +1,93 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/module/core.hpp>
+
+namespace eve::_
+{
+  template<typename I,typename T, typename U,typename V, callable_options O>
+  EVE_FORCEINLINE constexpr as_wide_as_t<common_value_t<T, U, V>, I>
+  jacobi_(EVE_REQUIRES(cpu_), O const&, I n, U alpha, V beta, T x)
+  {
+    if constexpr(scalar_value<I>)
+    {
+      using r_t = common_value_t<T, U, V>;
+      if(!is_flint(n) || is_ltz(n)) return eve::nan(eve::as(x));
+      if( n == 0 ) return r_t(1);
+      r_t  y0(1);
+      auto ap1   = inc(alpha);
+      auto apb   = alpha + beta;
+      auto a2mb2 = sqr(alpha) - sqr(beta);
+      auto y1    = fam(ap1, (apb + 2), (x - 1) * r_t(0.5));
+
+      r_t yk = y1;
+      I   k(2);
+      I   k2(4);
+      while( k <= n )
+      {
+        auto apbpk  = k + apb;
+        auto apbpk2 = k + apbpk;
+        auto denom  = k2 * apbpk * (apbpk2 - 2);
+        auto gamma1 = (apbpk2 - 1) * fma(apbpk2 * (apbpk2 - 2), x, a2mb2);
+        auto gamma0 = -2 * (k + alpha - 1) * (k + beta - 1) * apbpk2;
+        yk = fma(gamma1, y1, gamma0 * y0) / denom; // sum_of_prod(gamma1, y1, gamma0, y0)/denom;
+        y0 = y1;
+        y1 = yk;
+        ++k;
+        k2 += 2;
+      }
+      return yk;
+    }
+    else if constexpr(simd_value<I>)
+    {
+      if constexpr( std::same_as<T, I> && std::same_as<T, U> && std::same_as<T, V>)
+      {
+        x =  if_else(is_flint(n)&& is_gez(n), x,  eve::allbits);
+        T    y0(1);
+        auto ap1   = inc(alpha);
+        auto apb   = alpha + beta;
+        auto a2mb2 = sqr(alpha) - sqr(beta);
+        auto y1    = fam(ap1, (apb + 2), (x - 1) * T(0.5));
+        T    yk    = y1;
+        T    k(2);
+        T    k2(4);
+        auto test = k <= n;
+        while( eve::any(test) )
+        {
+          T apbpk  = k + apb;
+          T apbpk2 = k + apbpk;
+          T denom  = k2 * apbpk * (apbpk2 - 2);
+          T gamma1 = (apbpk2 - 1) * fma(apbpk2 * (apbpk2 - 2), x, a2mb2);
+          T gamma0 = -2 * (k + alpha - 1) * (k + beta - 1) * apbpk2;
+          yk       = if_else(test,
+                              fma(gamma1, y1, gamma0 * y0) / denom,
+                              yk); // sum_of_prod(gamma1, y1, gamma0, y0)/denom, yk);
+          y0       = if_else(test, y1, y0);
+          y1       = if_else(test, yk, y1);
+          k        = inc(k);
+          k2 += 2;
+          test = k <= n;
+        }
+        return if_else(is_eqz(n), one, yk);
+      }
+      else
+      {
+        using f_t   = common_value_t<T, U, V>;
+        using r_t   = as_wide_t<f_t, cardinal_t<I>>;
+        using elt_t = element_type_t<r_t>;
+        r_t nn(convert(n, as<elt_t>()));
+        r_t aalpha(convert(alpha, as<elt_t>()));
+        r_t bbeta(convert(beta, as<elt_t>()));
+        r_t xx(convert(x, as<elt_t>()));
+        xx =  if_else(is_flint(n)&&is_gez(n), x,  eve::allbits);
+        return jacobi(nn, aalpha, bbeta, xx);
+      }
+    }
+  }
+}

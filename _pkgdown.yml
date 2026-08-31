@@ -1,0 +1,113 @@
+url: https://r-logmu.logmu.org/
+authors:
+  Tim Gordon:
+    href: https://timgord.com
+template:
+  bootstrap: 5
+  light-switch: yes
+  math-rendering: katex
+  bslib:
+    base_font: Lisnoti
+    primary: '#7E57C2'
+    secondary: '#FF5722'
+    navbar-light-bg: hsl(262, 50%, 90%)
+    navbar-dark-bg: hsl(262, 50%, 35%)
+home:
+  links:
+  - text: Suggest a new feature
+    href: https://github.com/logmu-org/r-logmu/discussions
+footer:
+  structure:
+    left: [developed_by, typeset_in]
+    right: built_with
+  components:
+    typeset_in: '<br>Typeset in <a href="https://lisnoti.com/">Lisnoti</a>.'
+navbar:
+  type: default
+  left:
+    - icon: fa-home
+      href: index.html
+      aria-label: Home
+    - text: How to
+      menu:
+      - text: Get started
+        href: articles/A000-get-started.html
+      - text: Load data TBC
+      - text: Use data pronouns TBC
+      - text: "---"
+      - text: Run analyses
+      - text: Analyse experience data
+        href: articles/A010-analyse-experience-data.html
+      - text: Fit a model
+        href: articles/A020-fit-a-model.html
+      - text: Test multiple models
+        href: articles/A030-test-multiple-models.html
+      - text: Cluster categories
+        href: articles/A040-cluster-categories.html
+    - text: Fundamentals
+      menu:
+      - text: The default mortality TBC
+      - text: <b>logmu</b> mortality curves TBC
+      - text: "---"
+      - text: Base mortality framework
+      - text: Measures matter
+        href: articles/B010-measures-matter.html
+      - text: A over E
+        href: articles/B020-a-over-e.html
+      - text: Log-likelihood
+        href: articles/B030-log-likelihood.html
+      - text: Proportional hazards
+        href: articles/B040-proportional-hazards.html
+      - text: Suddenly AIC
+        href: articles/B050-suddenly-aic.html
+      - text: Overdispersion and quasi-log-likelihood
+        href: articles/B060-overdispersion.html
+      - text: Incoherent rating factors
+        href: articles/B070-incoherent-rating-factors.html
+    - text: R index
+      href: reference/index.html
+    - text: Change log
+      href: news/index.html
+    - text: Related
+      menu:
+      - text: Other packages
+      - text: datey
+        href: https://r-datey.logmu.org/
+      - text: nxp TBC
+
+articles:
+- title: How to
+  contents:
+  - starts_with("A")
+- title: Base mortality framework
+  contents:
+  - starts_with("B")
+
+reference:
+- title: Package overview
+  contents:
+  - logmu-package
+- title: Experience and valuation data
+  contents:
+  - exp_and_val_data
+  - is_exp_and_val_data_type
+  - exp_data_info
+  - as_at
+  - val_from_exp_data
+  - assign_column
+- title: Mortality
+  contents:
+  - mortality
+  - mortality_const
+  - mortality_table
+- title: A/E analysis
+  contents:
+  - aev_properties
+- title: Pronouns `.i` and `.t`
+  contents:
+  - pronoun_expressions
+- title: Vector operations
+  contents:
+  - vec_active
+  - vec_ops
+

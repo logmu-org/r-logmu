@@ -1,0 +1,159 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/module/core/constant/half.hpp>
+#include <eve/module/core/constant/inf.hpp>
+#include <eve/module/core/constant/one.hpp>
+#include <eve/module/core/constant/valmax.hpp>
+#include <eve/module/core/regular/ifrexp.hpp>
+#include <eve/module/core/regular/abs.hpp>
+#include <eve/module/core/regular/any.hpp>
+#include <eve/module/core/regular/dec.hpp>
+#include <eve/module/core/regular/fma.hpp>
+#include <eve/module/core/regular/fnma.hpp>
+#include <eve/module/core/regular/ldexp.hpp>
+#include <eve/module/core/regular/if_else.hpp>
+#include <eve/module/core/regular/is_denormal.hpp>
+#include <eve/module/core/regular/is_eqz.hpp>
+#include <eve/module/core/regular/is_odd.hpp>
+#include <eve/module/core/regular/max.hpp>
+#include <eve/module/core/regular/mul.hpp>
+#include <eve/module/core/regular/sqr.hpp>
+#include <eve/traits/apply_fp16.hpp>
+
+namespace eve::_
+{
+  //------------------------------------------------------------------------------------------------
+  // Generic function for rsqrt on X86
+  template<typename Pack>
+  EVE_FORCEINLINE Pack rsqrt_x86_normal(Pack const& x) noexcept
+  {
+    using v_t = typename Pack::value_type;
+    // Local constants
+    auto c8  = Pack(v_t {0.125});
+    auto c3  = Pack(v_t {3});
+    auto c10 = Pack(v_t {10});
+    auto c15 = Pack(v_t {15});
+    auto a0  = rsqrt[raw](x);
+    auto y   = sqr(a0) * x;
+
+    // Perform one Halley cubically convergent iteration
+    a0 = c8 * a0 * fnma(y, fnma(c3, y, c10), c15);
+
+    if constexpr( std::is_same_v<v_t, double> )
+    {
+      // To obtain extra accuracy, we need one additional Newton step
+      a0 = fma(fnma(x, sqr(a0), one(eve::as(a0))), a0 * half(eve::as(a0)), a0);
+    }
+
+    if constexpr( platform::supports_infinites )
+    {
+      a0 = if_else(x == inf(eve::as(x)), eve::zero, a0);
+    }
+
+    return if_else(is_eqz(x), inf(eve::as(x)), a0);
+  }
+
+  template<typename Pack>
+  EVE_FORCEINLINE Pack rsqrt_x86_full(Pack const& x) noexcept
+  {
+    using v_t = typename Pack::value_type;
+    if( eve::any(is_denormal(x)) ||
+        (std::is_same_v<v_t, double> && eve::any(eve::abs(x) < smallestposval(eve::as<float>()) ||
+                                                 eve::abs(x) > valmax(eve::as<float>()))) )
+      // this is necessary because of the poor initialisation by float intrinsic
+    {
+      auto [a00, nn] = ifrexp[pedantic](x);
+      auto tst       = is_odd(nn);
+      nn             = dec[tst](nn);
+      a00            = mul[tst](a00, 2);
+      auto a0        = rsqrt_x86_normal(a00);
+      return if_else(is_eqz(x), inf(eve::as(x)), ldexp[pedantic](a0, -nn / 2));
+    }
+    else
+    {
+      return rsqrt_x86_normal(x);
+    }
+  }
+
+  template<floating_scalar_value T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> rsqrt_(EVE_REQUIRES(sse2_), O const&, wide<T, N> v) noexcept
+    requires x86_abi<abi_t<T, N>>
+  {
+    constexpr auto c = categorize<wide<T, N>>();
+
+    if constexpr (std::same_as<T, eve::float16_t>)
+    {
+      if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32(eve::rsqrt, v);
+      else if constexpr (c == category::float16x8)          return _mm_rsqrt_ph(v);
+      else if constexpr (c == category::float16x16)         return _mm256_rsqrt_ph(v);
+      else if constexpr (c == category::float16x32)         return _mm512_rsqrt_ph(v);
+    }
+    else if constexpr(O::contains(raw))
+    {
+      if constexpr (current_api >= avx512)
+      {
+        if      constexpr (c == category::float32x16) return _mm512_rsqrt14_ps(v);
+        else if constexpr (c == category::float32x8)  return _mm256_rsqrt14_ps(v);
+        else if constexpr (c == category::float32x4)  return _mm_rsqrt14_ps(v);
+        else if constexpr (c == category::float64x8)  return _mm512_rsqrt14_pd(v);
+        else if constexpr (c == category::float64x4)  return _mm256_rsqrt14_pd(v);
+        else if constexpr (c == category::float64x2)  return _mm_rsqrt14_pd(v);
+      }
+      else
+      {
+        if      constexpr (c == category::float32x8)  return _mm256_rsqrt_ps(v);
+        else if constexpr (c == category::float32x4)  return _mm_rsqrt_ps(v);
+        // The maximum error for this approximation is 1.5e-12
+        else if constexpr (c == category::float64x4)  return _mm256_cvtps_pd(_mm_rsqrt_ps(_mm256_cvtpd_ps(v)));
+        else if constexpr (c == category::float64x2)  return _mm_cvtps_pd(_mm_rsqrt_ps(_mm_cvtpd_ps(v)));
+      }
+    }
+    else
+    {
+      return rsqrt_x86_full(v);
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Masked case
+  template<conditional_expr C, floating_scalar_value T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> rsqrt_(EVE_REQUIRES(avx512_),
+                                    C          const& cx,
+                                    O          const&,
+                                    wide<T, N> const& v) noexcept
+  requires x86_abi<abi_t<T, N>>
+  {
+    auto src = alternative(cx, v, as<wide<T, N>> {});
+    constexpr auto c = categorize<wide<T, N>>();
+    auto m   = expand_mask(cx, as<wide<T, N>> {}).storage().value;
+
+    if constexpr( C::is_complete) return src;
+    else if constexpr (std::same_as<T, eve::float16_t>)
+    {
+      if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32_masked(eve::rsqrt, cx, v);
+      else if constexpr (c == category::float16x8)          return _mm_mask_rsqrt_ph(src, m, v);
+      else if constexpr (c == category::float16x16)         return _mm256_mask_rsqrt_ph(src, m, v);
+      else if constexpr (c == category::float16x32)         return _mm512_mask_rsqrt_ph(src, m, v);
+    }
+    else if constexpr(O::contains(raw))
+    {
+      if      constexpr( c == category::float32x16) return _mm512_mask_rsqrt14_ps(src, m, v);
+      else if constexpr( c == category::float64x8 ) return _mm512_mask_rsqrt14_pd(src, m, v);
+      else if constexpr( c == category::float32x16) return _mm256_mask_rsqrt14_ps(src, m, v);
+      else if constexpr( c == category::float64x8 ) return _mm256_mask_rsqrt14_pd(src, m, v);
+      else if constexpr( c == category::float32x16) return _mm_mask_rsqrt14_ps(src, m, v);
+      else if constexpr( c == category::float64x8 ) return _mm_mask_rsqrt14_pd(src, m, v);
+    }
+    else
+    {
+      return if_else(cx,rsqrt_x86_full(v), v);
+    }
+  }
+}

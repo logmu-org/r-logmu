@@ -1,0 +1,26 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/detail/implementation.hpp>
+
+namespace eve::_
+{
+  template<floating_scalar_value T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> nearest_(EVE_REQUIRES(vmx_), wide<T, N> const& v0) noexcept
+  requires ppc_abi<abi_t<T, N>>
+  {
+    if constexpr( std::is_same_v<T, float> )
+      return vec_round(v0.storage());
+    else if constexpr( std::is_same_v<T, double> )
+    {
+      // TODO (joel) : Test on proper VSX HW
+      return map(eve::nearest, v0);
+    }
+  }
+}

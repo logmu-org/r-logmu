@@ -1,0 +1,42 @@
+#!/bin/sh
+# Generate src/Makevars with architecture-appropriate SIMD build rules.
+set -e
+
+: "${R_HOME=$(R RHOME)}"
+if [ -z "${R_HOME}" ]; then
+  echo "configure: cannot determine R_HOME" >&2
+  exit 1
+fi
+RBIN="${R_HOME}/bin/R"
+
+CXX=$("${RBIN}" CMD config CXX)
+
+# Ask the compiler what it targets (arch macros are independent of -std).
+DEFS=$(printf '' | ${CXX} -E -dM - 2>/dev/null || true)
+
+ARCH=other
+case " ${DEFS} " in
+  *__x86_64__*|*__i386__*)  ARCH=x86 ;;
+  *__aarch64__*|*__arm__*)  ARCH=arm ;;
+esac
+
+SIMD_OBJECTS=""
+if [ "${ARCH}" = "x86" ]; then
+  SIMD_OBJECTS="vec_ops/vec_kernel_avx2.o vec_ops/vec_kernel_avx512.o"
+fi
+
+sed "s|@LOGMU_SIMD_OBJECTS@|${SIMD_OBJECTS}|" src/Makevars.in > src/Makevars
+
+if [ "${ARCH}" = "x86" ]; then
+  {
+    printf '\n'
+    printf 'vec_ops/vec_kernel_avx2.o: vec_ops/vec_kernel_avx2.cpp\n'
+    printf '\t$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx2 -mfma -c vec_ops/vec_kernel_avx2.cpp -o vec_ops/vec_kernel_avx2.o\n'
+    printf '\n'
+    printf 'vec_ops/vec_kernel_avx512.o: vec_ops/vec_kernel_avx512.cpp\n'
+    printf '\t$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -c vec_ops/vec_kernel_avx512.cpp -o vec_ops/vec_kernel_avx512.o\n'
+  } >> src/Makevars
+fi
+
+echo "configure: target arch = ${ARCH}; SIMD tiers = ${SIMD_OBJECTS:-baseline only}"
+exit 0

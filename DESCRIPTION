@@ -1,0 +1,45 @@
+Package: logmu
+Title: Actuarial Mortality Experience Analysis and Modelling
+Version: 0.1.0
+Authors@R:
+    person("Tim", "Gordon", , "tim.gordon@btinternet.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0009-0006-3087-4384"))
+Description: High-performance actuarial mortality experience analysis and
+    model fitting, built on a flexible mortality framework incorporating
+    time-based covariates and arbitrary proportional hazards models and
+    with particular support for postcode-based socio-economic mortality
+    models. A/E analysis includes confidence intervals and residuals with
+    visualisation. Model fitting features include covariate clustering,
+    maximum likelihood fitting and model selection using AIC. Weighting
+    (e.g. amounts vs lives), probabilistic relevance weighting (e.g.
+    down-weight older data) and optionally time-based inclusion criteria
+    (e.g. sub-setting experience by age) are supported throughout.
+    Calculations use SIMD vectorisation and multi-threading for
+    performance.
+License: Apache License (>= 2)
+URL: https://github.com/logmu-org/r-logmu, https://r-logmu.logmu.org/
+BugReports: https://github.com/logmu-org/r-logmu/issues
+Depends:
+    R (>= 4.6.0)
+Imports:
+    datey,
+    ggplot2 (>= 4.0.0),
+    grid,
+    gtable,
+    lifecycle,
+    pillar (>= 1.9.0)
+Suggests: 
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+LinkingTo: 
+    cpp11
+VignetteBuilder:
+    knitr
+Config/roxygen2/markdown: TRUE
+Config/roxygen2/version: 8.0.0
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-GB
+SystemRequirements: C++20
+Roxygen: list(markdown = TRUE)

@@ -1,0 +1,25 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^LICENSE\.md$
+^cran-comments\.md$
+^data-raw$
+^pkgdown$
+^_pkgdown\.yml$
+^\.github$
+^docs$
+^\.positai$
+^\.claude$
+^\.Rhistory$
+^CLAUDE\.md$
+^_TODO.md$
+^CRAN-SUBMISSION$
+^codecov\.yml$
+# Compiled objects. `R CMD build` installs the package to build the vignettes,
+# which compiles in place under src/, and the tarball is written before the
+# cleanup script removes them -- so without this they ship in the source
+# package and CRAN notes them.
+\.o$
+\.so$
+\.dll$
+\.dylib$

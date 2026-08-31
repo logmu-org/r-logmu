@@ -1,0 +1,12 @@
+---
+title: "Analyse experience data"
+output:
+  rmarkdown::html_vignette:
+    mathjax: default
+vignette: >
+  %\VignetteIndexEntry{Analyse experience data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+TODO

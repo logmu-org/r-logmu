@@ -1,0 +1,159 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/concept/value.hpp>
+#include <eve/detail/abi.hpp>
+#include <eve/detail/category.hpp>
+#include <eve/forward.hpp>
+#include <eve/module/core/regular/combine.hpp>
+#include <eve/traits/apply_fp16.hpp>
+
+namespace eve::_
+{
+
+  template<callable_options O, typename T, typename N>
+  EVE_FORCEINLINE wide<T, N> div_(EVE_REQUIRES(sse2_), O const& opts, wide<T, N> a, wide<T, N> b) noexcept
+  requires (x86_abi<abi_t<T, N>> && !O::contains(mod) && !O::contains(widen))
+  {
+    if constexpr(O::contains(left))
+    {
+      return div[opts.drop(left)](b, a);
+    }
+    else if constexpr(O::contains(saturated) ||
+                 O::contains(toward_zero) || O::contains(upward) ||
+                 O::contains(downward) || O::contains(to_nearest))
+    {
+      return div.behavior(cpu_{}, opts, a, b);
+    }
+    else
+    {
+      constexpr auto c = categorize<wide<T, N>>();
+      constexpr auto fp16s = _::supports_fp16_vector_ops;
+
+      if constexpr(O::contains(upper) || O::contains(lower))
+      {
+        if constexpr(O::contains(strict) || (current_api < avx512))
+        {
+          return div.behavior(cpu_{}, opts, a, b);
+        }
+        else
+        {
+          auto constexpr dir = (O::contains(lower) ? _MM_FROUND_TO_NEG_INF : _MM_FROUND_TO_POS_INF) | _MM_FROUND_NO_EXC;
+          if      constexpr ( c == category::float64x8           ) return _mm512_div_round_pd(a, b, dir);
+          else if constexpr ( c == category::float32x16          ) return _mm512_div_round_ps(a, b, dir);
+          else if constexpr ( c == category::float16x32 && fp16s ) return _mm512_div_round_ph(a, b, dir);
+          else if constexpr (match(c, category::float32 | category::float64) || (match(c, category::float16) && fp16s))
+          {
+            auto aa = eve::combine(a, a);
+            auto bb = eve::combine(b, b);
+            auto aapbb = div[opts](aa, bb);
+            return slice(aapbb, eve::upper_);
+          }
+          else
+          {
+            return div.behavior(cpu_{}, opts, a, b);
+          }
+        }
+      }
+      else  if constexpr  ( c == category::float64x8  ) return _mm512_div_pd(a, b);
+      else  if constexpr  ( c == category::float64x4  ) return _mm256_div_pd(a, b);
+      else  if constexpr  ( c == category::float64x2  ) return _mm_div_pd(a, b);
+      else  if constexpr  ( c == category::float32x16 ) return _mm512_div_ps(a, b);
+      else  if constexpr  ( c == category::float32x8  ) return _mm256_div_ps(a, b);
+      else  if constexpr  ( c == category::float32x4  ) return _mm_div_ps(a, b);
+      else  if constexpr (match(c, category::float16))
+      {
+        if      constexpr (!fp16s)                    return apply_fp16_as_fp32(div, a, b);
+        else if constexpr (c == category::float16x32) return _mm512_div_ph(a, b);
+        else if constexpr (c == category::float16x16) return _mm256_div_ph(a, b);
+        else if constexpr (c == category::float16x8)  return _mm_div_ph(a, b);
+      }
+      else  if constexpr  ( c == category::int32x4 && current_api >= avx  )
+      {
+        auto dividend = _mm256_cvtepi32_pd(a);
+        auto divisor  = _mm256_cvtepi32_pd(b);
+        return _mm256_cvttpd_epi32(_mm256_div_pd(dividend, divisor));
+      }
+      else
+      {
+        auto s = a;
+        constexpr auto sdiv = [](auto va, auto vb) { return va /= vb; };
+        if constexpr( N::value >= 2  )  return slice_apply(sdiv, s, b);
+        else                            return map(sdiv, s, b);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // Masked case
+  template<callable_options O, conditional_expr C, floating_scalar_value T, typename N>
+  EVE_FORCEINLINE wide<T, N> div_(EVE_REQUIRES(avx512_), C const& cx, O const& o, wide<T, N> v, wide<T, N> w) noexcept
+  requires (x86_abi<abi_t<T, N>> && !O::contains(mod) && !O::contains(widen))
+  {
+    constexpr auto c = categorize<wide<T, N>>();
+    constexpr auto fp16s = _::supports_fp16_vector_ops;
+    auto src = alternative(cx, v, as<wide<T, N>> {});
+    auto m   = expand_mask(cx, as<wide<T, N>> {}).storage().value;
+
+    if constexpr(O::contains(left))
+    {
+      return div[o][cx].retarget(cpu_{}, v, w);
+    }
+    else if constexpr (floating_value<T> && (O::contains(lower) || O::contains(upper)))
+    {
+      if constexpr (O::contains(strict))
+      {
+        return div.behavior(cpu_{}, o, v, w);
+      }
+      else
+      {
+        auto constexpr dir = (O::contains(lower) ? _MM_FROUND_TO_NEG_INF : _MM_FROUND_TO_POS_INF) | _MM_FROUND_NO_EXC;
+
+        if      constexpr ( c == category::float64x8           ) return _mm512_mask_div_round_pd(src, m, v, w, dir);
+        else if constexpr ( c == category::float32x16          ) return _mm512_mask_div_round_ps(src, m, v, w, dir);
+        else if constexpr ( c == category::float16x32 && fp16s ) return _mm512_mask_div_round_ph(src, m, v, w, dir);
+        else if constexpr (match(c, category::float32 | category::float64) || (match(c, category::float16) && fp16s))
+        {
+          auto vv = combine(v, v);
+          auto ww = combine(w, w);
+          auto vvpww = div[o](vv, ww);
+          auto s = slice(vvpww, eve::upper_);
+          return if_else(cx, s, src);
+        }
+        else
+        {
+          return div.behavior(cpu_{}, o, v, w);
+        }
+      }
+    }
+    else if constexpr (O::contains(toward_zero) || O::contains(upward) ||
+                       O::contains(downward) || O::contains(to_nearest))
+    {
+      return round[o][cx](div[cx](v, w));
+    }
+    else
+    {
+      if      constexpr( C::is_complete ) return src;
+      else if constexpr( c == category::float32x16) return _mm512_mask_div_ps(src, m, v, w);
+      else if constexpr( c == category::float64x8 ) return _mm512_mask_div_pd(src, m, v, w);
+      else if constexpr( c == category::float32x8 ) return _mm256_mask_div_ps(src, m, v, w);
+      else if constexpr( c == category::float64x4 ) return _mm256_mask_div_pd(src, m, v, w);
+      else if constexpr( c == category::float32x4 ) return _mm_mask_div_ps(src, m, v, w);
+      else if constexpr( c == category::float64x2 ) return _mm_mask_div_pd(src, m, v, w);
+      else  if constexpr (match(c, category::float16))
+      {
+        if      constexpr (!fp16s)                    return apply_fp16_as_fp32_masked(div, cx, v, w);
+        else if constexpr (c == category::float16x32) return _mm512_mask_div_ph(src, m, v, w);
+        else if constexpr (c == category::float16x16) return _mm256_mask_div_ph(src, m, v, w);
+        else if constexpr (c == category::float16x8)  return _mm_mask_div_ph(src, m, v, w);
+      }
+      else return div[o][cx].retarget(cpu_{}, v, w);
+    }
+  }
+}

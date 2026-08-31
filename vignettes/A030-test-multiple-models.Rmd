@@ -1,0 +1,12 @@
+---
+title: "Test multiple models"
+output:
+  rmarkdown::html_vignette:
+    mathjax: default
+vignette: >
+  %\VignetteIndexEntry{Test multiple models}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+TODO

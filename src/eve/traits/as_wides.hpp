@@ -1,0 +1,43 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/detail/wide_forward.hpp>
+
+namespace eve
+{
+  template<scalar_value T0, scalar_value... T>
+  auto as_wides(T0 zz, T... vs)
+  {
+    constexpr auto rem = (sizeof...(T)) % eve::wide<T0>::size();
+    if constexpr(rem != 0)
+    {
+      return [&]<std::size_t... N>(std::index_sequence<N...>)
+      {
+        auto z = [&](auto) { return zz; };
+        return as_wides(zz, vs..., z(N)...);
+      }(std::make_index_sequence<eve::wide<T0>::size() - rem>());
+    }
+    else
+    {
+      return kumi::map( [](auto c)
+                        {
+                          return kumi::apply( [](auto... s) { return eve::wide<T0>{s...}; }, c);
+                        }
+                      , kumi::chunks<eve::wide<T0>::size()>(kumi::tie(vs...))
+                      );
+    }
+  }
+
+  template<scalar_value T0, eve::non_empty_product_type T>
+  auto as_wides(T0 t0, T t)
+  {
+    return kumi::apply([t0](auto... m){return eve::as_wides(t0, m...); }, t);
+  }
+
+}

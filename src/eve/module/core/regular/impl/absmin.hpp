@@ -1,0 +1,22 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/module/core/regular/abs.hpp>
+#include <eve/module/core/regular/min.hpp>
+#include <eve/concept/value.hpp>
+
+namespace eve::_
+{
+  template<typename T0, typename... Ts, callable_options O>
+  EVE_FORCEINLINE constexpr auto
+  absmin_(EVE_REQUIRES(cpu_), O const & o, T0 r0, Ts... rs) noexcept
+  {
+    return eve::abs[o.drop(pedantic,numeric)](eve::min[o.drop(saturated)](r0, rs...));
+  }
+}

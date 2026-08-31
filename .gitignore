@@ -1,0 +1,19 @@
+.Rproj.user
+.Rhistory
+.RData
+.httr-oauth
+.DS_Store
+.quarto
+docs
+.positai
+inst/doc
+.vscode
+*.stackdump
+
+# Source packages from `R CMD build` / Build Source Package. Regenerated on
+# demand, so there is never a reason to track one.
+*.tar.gz
+
+# Working notes, deliberately untracked: a scratchpad rather than documentation,
+# and it named unannounced products. Kept on disk, out of the repo.
+_TODO.md

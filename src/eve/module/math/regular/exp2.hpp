@@ -1,0 +1,182 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/module/core.hpp>
+#include <eve/detail/overload.hpp>
+
+namespace eve
+{
+  template<typename Options>
+  struct exp2_t : strict_elementwise_callable<exp2_t, Options, pedantic_option, saturated_option>
+  {
+    template<eve::value T>
+    EVE_FORCEINLINE constexpr T operator()(T s) const noexcept
+    {
+      return EVE_DISPATCH_CALL(s);
+    }
+
+    template<eve::integral_value T, floating_scalar_value U>
+    EVE_FORCEINLINE constexpr eve::as_wide_as_t<U, T>operator()(T v, eve::as<U> target ) const noexcept
+    {
+      return EVE_DISPATCH_CALL(v, target);
+    }
+
+    EVE_CALLABLE_OBJECT(exp2_t, exp2_);
+  };
+
+//================================================================================================
+//! @addtogroup math_exp
+//! @{
+//! @var exp2
+//! @brief  `elementwise_callable` object computing \f$2^x\f$.
+//!
+//!   @groupheader{Header file}
+//!
+//!   @code
+//!   #include <eve/module/math.hpp>
+//!   @endcode
+//!
+//!   @groupheader{Callable Signatures}
+//!
+//!   @code
+//!   namespace eve
+//!   {
+//!      // Regular overload
+//!      constexpr auto exp2(value auto x)                          noexcept; // 1
+//!
+//!      // Lanes masking
+//!      constexpr auto exp2[conditional_expr auto c](value auto x) noexcept; // 2
+//!      constexpr auto exp2[logical_value auto m](value auto x)    noexcept; // 2
+//!   }
+//!   @endcode
+//!
+//! **Parameters**
+//!
+//!    * `x`: [value](@ref eve::value).
+//!    * `c`: [Conditional expression](@ref eve::conditional_expr) masking the operation.
+//!    * `m`: [Logical value](@ref eve::logical_value) masking the operation.
+//!
+//! **Return value**
+//!
+//!   1. Returns the [elementwise](@ref glossary_elementwise) exponential of base 2 of the input.
+//!      In particular, for floating inputs:
+//!        * If the element is \f$\pm0\f$, \f$1\f$ is returned
+//!        * If the element is \f$-\infty\f$, \f$+0\f$ is returned
+//!        * If the element is \f$\infty\f$, \f$\infty\f$ is returned
+//!        * If the element is a `NaN`, `NaN` is returned
+//!   2. [The operation is performed conditionnaly](@ref conditional).
+//!
+//!   @note For integral negative entry, the result is zero.
+//!
+//!  @groupheader{External references}
+//!   *  [C++ standard reference](https://en.cppreference.com/w/cpp/numeric/math/exp2)
+//!   *  [Wolfram MathWorld](https://mathworld.wolfram.com/ExponentialFunction.html)
+//!   *  [DLMF](https://dlmf.nist.gov/4.2)
+//!   *  [Wikipedia](https://en.wikipedia.org/wiki/Exponential_function)
+//!
+//!  @groupheader{Example}
+//!  @godbolt{doc/math/exp2.cpp}
+//================================================================================================
+  inline constexpr auto exp2 = functor<exp2_t>;
+//================================================================================================
+//!  @}
+//================================================================================================
+
+  namespace _
+  {
+    template<value T, callable_options O>
+    EVE_FORCEINLINE constexpr T
+    exp2_(EVE_REQUIRES(cpu_), O const& o, T x) noexcept
+    {
+      if constexpr(std::same_as<eve::element_type_t<T>, eve::float16_t>)
+        return eve::_::apply_fp16_as_fp32(eve::exp2[o], x);
+      else
+      {
+        if constexpr(floating_value<T>)
+        {
+          using elt_t    = element_type_t<T>;
+          auto minlogval = []()
+            {
+              if constexpr(O::contains(pedantic) && eve::platform::supports_denormals)
+              return minlog2denormal(eve::as<T>());
+              else
+                return minlog2(eve::as<T>());
+            };
+          auto xltminlog2 = x <= minlogval();
+          auto xgemaxlog2 = x >= maxlog2(eve::as(x));
+          if constexpr( scalar_value<T> )
+          {
+            if( is_nan(x)  ) return nan(eve::as(x));
+            if( xgemaxlog2 ) return inf(eve::as(x));
+            if( xltminlog2 ) return zero(eve::as(x));
+          }
+          auto k = nearest(x);
+          x      = x - k;
+          if constexpr( std::is_same_v<elt_t, float> )
+          {
+            T y =
+              eve::reverse_horner(x, T(0x1.ebfbe2p-3f), T(0x1.c6add6p-5f)
+                                 , T(0x1.3b2844p-7f), T(0x1.602430p-10f), T(0x1.459188p-13f));
+            x   = inc(fma(y, sqr(x), x * log_2(eve::as<T>())));
+          }
+          else if constexpr( std::is_same_v<elt_t, double> )
+          {
+            x *= log_2(eve::as<T>());
+            T    t = sqr(x);
+            auto h =
+              eve::reverse_horner(t, T(0x1.555555555553ep-3), T(-0x1.6c16c16bebd93p-9)
+                                 , T(0x1.1566aaf25de2cp-14), T(-0x1.bbd41c5d26bf1p-20), T(0x1.6376972bea4d0p-25));
+            T    c = fnma(t, h, x); // x-h*t
+            x      = oneminus(((-(x * c) / (T(2) - c)) - x));
+          }
+          auto z = ldexp[pedantic](x, k);
+          if constexpr( simd_value<T> )
+          {
+            z = if_else(is_nan(x),  x, z);
+            z = if_else(xltminlog2, eve::zero, z);
+            z = if_else(xgemaxlog2, inf(eve::as(x)), z);
+          }
+          return z;
+        }
+        else  // integral value
+        {
+          element_type_t<T> constexpr siz = sizeof(element_type_t<T>) * 8 - 1;
+          auto test                       = is_ltz(x) || (x > siz);
+          x                               = if_else(test, zero, x);
+          auto tmp                        = if_else(test, eve::zero, shl(one(eve::as(x)), x));
+          if constexpr( O::contains(saturated))
+          {
+            using elt_t = element_type_t<T>;
+            return if_else(is_gez(x, T(sizeof(elt_t))), valmax(eve::as<T>()), tmp);
+          }
+          else
+            return tmp;
+        }
+      }
+    }
+
+    template<value T, floating_scalar_value U, callable_options O>
+    EVE_FORCEINLINE constexpr as_wide_as_t<U, T>
+    exp2_(EVE_REQUIRES(cpu_), O const& o, T xx, as<U> const & trgt) noexcept
+    {
+      if constexpr(std::same_as<eve::element_type_t<T>, eve::float16_t>)
+        return eve::_::apply_fp16_as_fp32(eve::exp[o], xx, trgt);
+      else
+      {
+        using b_t = as_wide_as_t<U, T>;
+        using i_t  = as_integer_t<element_type_t<b_t>>;
+        auto x  = convert(xx, as<i_t>());
+        auto isnez  = is_nez(x);
+        auto zz = eve::min(x + maxexponent(eve::as<U>()), 2 * maxexponent(eve::as<U>()) + 1) & isnez.mask();
+        zz = zz << nbmantissabits(eve::as<U>());
+        return if_else(isnez, bit_cast(zz, as<b_t>()), one);
+      }
+    }
+  }
+}

@@ -1,0 +1,79 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/concept/conditional.hpp>
+#include <eve/concept/value.hpp>
+#include <eve/detail/wide_forward.hpp>
+#include <eve/traits/as_wide.hpp>
+
+namespace eve
+{
+template<logical_simd_value Logical> struct top_bits;
+
+struct ignore_all_;
+struct ignore_none_;
+struct keep_first;
+struct keep_last;
+struct ignore_first;
+struct ignore_last;
+struct keep_between;
+struct ignore_extrema;
+
+template<typename O> struct is_greater_t;
+template<typename O> struct is_less_t;
+
+}
+
+namespace eve::_
+{
+// to_logical -----------------------------------------------------------
+template<typename T, typename N> auto to_logical(wide<T, N> const& v) noexcept;
+
+template<value T> EVE_FORCEINLINE auto to_logical(logical<T> v) noexcept;
+
+template<logical_simd_value Logical> Logical to_logical(eve::top_bits<Logical> mmask) noexcept;
+
+template<scalar_value T> auto to_logical(T v) noexcept;
+
+template<relative_conditional_expr C, simd_value T> auto to_logical(C c, eve::as<T>) noexcept;
+
+template<relative_conditional_expr C, simd_value T>
+auto EVE_FORCEINLINE to_logical(C c, eve::as<T>) noexcept
+requires (x86_abi<typename T::abi_type> && (current_api >= avx512));
+
+template<conditional_expr C, typename Op, typename Arg0, typename... Args>
+EVE_FORCEINLINE auto mask_op(C const&                     c,
+                             [[maybe_unused]] Op          f,
+                             [[maybe_unused]] Arg0 const& a0,
+                             [[maybe_unused]] Args const&...as);
+
+
+// This is an inderect wrapper of eve::simd_cast to avoid cycling dependencies
+template <typename From, typename To>
+To call_simd_cast(From, as<To>);
+
+// This is an inderect wrapper of eve::convert to avoid cycling dependencies
+template <typename Src, typename Tgt>
+as_wide_as_t<Tgt, Src> call_convert(Src, as<Tgt>);
+
+// This is an inderect wrapper of eve::_::butterfly_reduction to avoid cycling dependencies
+template <simd_value Wide, typename Callable>
+auto call_butterfly_reduction(Wide w, Callable f) noexcept;
+
+// This is a limited  inderect wrapper of eve::add to avoid cycling dependencies
+template <typename T, typename U>
+auto call_add(T, U);
+
+// This is a limited  inderect wrapper of eve::sub to avoid cycling dependencies
+template <typename T, typename U>
+auto call_sub(T, U);
+
+
+
+}

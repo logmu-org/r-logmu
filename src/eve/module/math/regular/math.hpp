@@ -1,0 +1,80 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/module/math/regular/acos.hpp>
+#include <eve/module/math/regular/acosh.hpp>
+#include <eve/module/math/regular/acot.hpp>
+#include <eve/module/math/regular/acoth.hpp>
+#include <eve/module/math/regular/acsc.hpp>
+#include <eve/module/math/regular/acsch.hpp>
+#include <eve/module/math/regular/agd.hpp>
+#include <eve/module/math/regular/arg.hpp>
+#include <eve/module/math/regular/asec.hpp>
+#include <eve/module/math/regular/asech.hpp>
+#include <eve/module/math/regular/asin.hpp>
+#include <eve/module/math/regular/asinh.hpp>
+#include <eve/module/math/regular/atan.hpp>
+#include <eve/module/math/regular/atan2.hpp>
+#include <eve/module/math/regular/atanh.hpp>
+#include <eve/module/math/regular/cbrt.hpp>
+#include <eve/module/math/regular/cos.hpp>
+#include <eve/module/math/regular/cosh.hpp>
+#include <eve/module/math/regular/cot.hpp>
+#include <eve/module/math/regular/coth.hpp>
+#include <eve/module/math/regular/csc.hpp>
+#include <eve/module/math/regular/csch.hpp>
+#include <eve/module/math/regular/deginrad.hpp>
+#include <eve/module/math/regular/div_180.hpp>
+#include <eve/module/math/regular/exp.hpp>
+#include <eve/module/math/regular/exp10.hpp>
+#include <eve/module/math/regular/exp2.hpp>
+#include <eve/module/math/regular/expm1.hpp>
+#include <eve/module/math/regular/expmx2.hpp>
+#include <eve/module/math/regular/expx2.hpp>
+#include <eve/module/math/regular/gd.hpp>
+#include <eve/module/math/regular/geommean.hpp>
+#include <eve/module/math/regular/harmmean.hpp>
+#include <eve/module/math/regular/horner.hpp>
+#include <eve/module/math/regular/hypot.hpp>
+#include <eve/module/math/regular/kolmmean.hpp>
+#include <eve/module/math/regular/lentz_a.hpp>
+#include <eve/module/math/regular/lentz_b.hpp>
+#include <eve/module/math/regular/log.hpp>
+#include <eve/module/math/regular/log10.hpp>
+#include <eve/module/math/regular/log1p.hpp>
+#include <eve/module/math/regular/log2.hpp>
+#include <eve/module/math/regular/log_abs.hpp>
+#include <eve/module/math/regular/logspace_add.hpp>
+#include <eve/module/math/regular/logspace_sub.hpp>
+#include <eve/module/math/regular/lpnorm.hpp>
+#include <eve/module/math/regular/neville.hpp>
+#include <eve/module/math/regular/newton.hpp>
+#include <eve/module/math/regular/nthroot.hpp>
+#include <eve/module/math/regular/pow.hpp>
+#include <eve/module/math/regular/pow1p.hpp>
+#include <eve/module/math/regular/pow_abs.hpp>
+#include <eve/module/math/regular/powm1.hpp>
+#include <eve/module/math/regular/quadrant.hpp>
+#include <eve/module/math/regular/radindeg.hpp>
+#include <eve/module/math/regular/radinpi.hpp>
+#include <eve/module/math/regular/rempio2.hpp>
+#include <eve/module/math/regular/reverse_horner.hpp>
+#include <eve/module/math/regular/sec.hpp>
+#include <eve/module/math/regular/sech.hpp>
+#include <eve/module/math/regular/sigmoid.hpp>
+#include <eve/module/math/regular/significants.hpp>
+#include <eve/module/math/regular/sin.hpp>
+#include <eve/module/math/regular/sinc.hpp>
+#include <eve/module/math/regular/sincos.hpp>
+#include <eve/module/math/regular/sinh.hpp>
+#include <eve/module/math/regular/sinhc.hpp>
+#include <eve/module/math/regular/sinhcosh.hpp>
+#include <eve/module/math/regular/sinpic.hpp>
+#include <eve/module/math/regular/tan.hpp>
+#include <eve/module/math/regular/tanh.hpp>

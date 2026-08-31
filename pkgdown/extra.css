@@ -1,0 +1,61 @@
+@font-face {
+  font-family: "Lisnoti";
+  font-display: swap;
+  src:
+    url('fonts/Lisnoti-Regular.woff2') format('woff2'),
+    url('fonts/Lisnoti-Regular.woff') format('woff'),
+    url('fonts/Lisnoti-Regular.ttf')  format('truetype');
+}
+
+@font-face {
+  font-family: "Lisnoti";
+  font-display: swap;
+  src:
+    url('fonts/Lisnoti-Bold.woff2') format('woff2'),
+    url('fonts/Lisnoti-Bold.woff') format('woff'),
+    url('fonts/Lisnoti-Bold.ttf')  format('truetype');
+  font-weight: bold;
+}
+
+@font-face {
+  font-family: "Lisnoti";
+  font-display: swap;
+  src:
+    url('fonts/Lisnoti-Italic.woff2') format('woff2'),
+    url('fonts/Lisnoti-Italic.woff') format('woff'),
+    url('fonts/Lisnoti-Italic.ttf')  format('truetype');
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Lisnoti";
+  font-display: swap;
+  src:
+    url('fonts/Lisnoti-BoldItalic.woff2') format('woff2'),
+    url('fonts/Lisnoti-BoldItalic.woff') format('woff'),
+    url('fonts/Lisnoti-BoldItalic.ttf')  format('truetype');
+  font-weight: bold;
+  font-style: italic;
+}
+
+/* Style code */
+code {
+  font-size: 1em;
+}
+
+/* Style right hand aside titles */
+aside h2, aside .h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  margin-top: 2.5rem;
+  color: rgba(var(--bs-body-color-rgb), 0.65);
+}
+
+footer {
+  font-size: 0.825em;
+}
+
+/* Remove bottom margin from last paragraph inside Bootstrap alert boxes */
+.alert *:last-child {
+  margin-bottom: 0;
+}

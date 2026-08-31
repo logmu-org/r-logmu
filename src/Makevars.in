@@ -1,0 +1,26 @@
+# Generated into src/Makevars by ./configure -- do NOT edit src/Makevars by hand.
+
+CXX_STD = CXX20
+
+# EVE is header-only; vendor its headers under src/eve/ (NOT inst, so they are
+# not installed or exposed via LinkingTo). The compiler runs with cwd = src/.
+PKG_CPPFLAGS = -I.
+
+# cpp11.o is the cpp11-generated registration TU. The R-free vectorised ops
+# live under src/vec_ops/; R does not auto-compile a subfolder, so those
+# objects have explicit rules below. The AVX object list (@LOGMU_SIMD_OBJECTS@)
+# is empty on non-x86 targets. veil.o is the R-free veil core TU; src/veil/ is
+# header-only, so this is what puts those headers in the build.
+OBJECTS = cpp11.o R.o aev.o veil.o veil_for_R.o vec_ops_for_R.o vec_ops/vec_op_dispatch.o vec_ops/vec_kernel_baseline.o @LOGMU_SIMD_OBJECTS@
+
+all: $(SHLIB)
+
+# Subfolder objects need explicit compile rules; the built-in rule only covers
+# sources directly in src/.
+vec_ops/vec_kernel_baseline.o: vec_ops/vec_kernel_baseline.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -c vec_ops/vec_kernel_baseline.cpp -o vec_ops/vec_kernel_baseline.o
+
+vec_ops/vec_op_dispatch.o: vec_ops/vec_op_dispatch.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -c vec_ops/vec_op_dispatch.cpp -o vec_ops/vec_op_dispatch.o
+
+# Per-file ISA rules for the AVX tiers are appended here by ./configure on x86.

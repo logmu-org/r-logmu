@@ -1,0 +1,30 @@
+# Windows (Rtools, x86-64). All three tiers are built.
+
+CXX_STD = CXX20
+
+# EVE is header-only; vendor its headers under src/eve/ (NOT inst, so they are
+# not installed or exposed via LinkingTo). The compiler runs with cwd = src/.
+PKG_CPPFLAGS = -I.
+
+# cpp11.o is the cpp11-generated registration TU. The R-free vectorised ops
+# live under src/vec_ops/; R does not auto-compile a subfolder, so those
+# objects have explicit rules below. On Windows all three SIMD tiers are built.
+# veil.o is the R-free veil core TU; src/veil/ is header-only, so this is what
+# puts those headers in the build.
+OBJECTS = cpp11.o R.o aev.o veil.o veil_for_R.o vec_ops_for_R.o vec_ops/vec_op_dispatch.o vec_ops/vec_kernel_baseline.o vec_ops/vec_kernel_avx2.o vec_ops/vec_kernel_avx512.o
+
+all: $(SHLIB)
+
+# Subfolder objects need explicit compile rules; the built-in rule only covers
+# sources directly in src/. The AVX tiers additionally carry their ISA flags.
+vec_ops/vec_kernel_baseline.o: vec_ops/vec_kernel_baseline.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -c vec_ops/vec_kernel_baseline.cpp -o vec_ops/vec_kernel_baseline.o
+
+vec_ops/vec_op_dispatch.o: vec_ops/vec_op_dispatch.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -c vec_ops/vec_op_dispatch.cpp -o vec_ops/vec_op_dispatch.o
+
+vec_ops/vec_kernel_avx2.o: vec_ops/vec_kernel_avx2.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx2 -mfma -c vec_ops/vec_kernel_avx2.cpp -o vec_ops/vec_kernel_avx2.o
+
+vec_ops/vec_kernel_avx512.o: vec_ops/vec_kernel_avx512.cpp
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -c vec_ops/vec_kernel_avx512.cpp -o vec_ops/vec_kernel_avx512.o

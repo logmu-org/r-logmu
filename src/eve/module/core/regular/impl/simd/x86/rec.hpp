@@ -1,0 +1,193 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/concept/value.hpp>
+#include <eve/detail/implementation.hpp>
+#include <eve/module/core/regular/fma.hpp>
+#include <eve/module/core/regular/fnma.hpp>
+#include <eve/module/core/constant/one.hpp>
+#include <eve/module/core/constant/inf.hpp>
+#include <eve/module/core/constant/mzero.hpp>
+#include <eve/module/core/regular/is_eqz.hpp>
+#include <eve/module/core/regular/is_infinite.hpp>
+#include <eve/module/core/regular/is_nan.hpp>
+#include <eve/module/core/regular/is_not_nan.hpp>
+#include <eve/traits/apply_fp16.hpp>
+
+namespace eve::_
+{
+  template<floating_scalar_value T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> rec_(EVE_REQUIRES(sse2_),
+                                  O const& o,
+                                  wide<T, N> const& v) noexcept
+  requires(x86_abi<abi_t<T, N>> && !O::contains(mod))
+
+  {
+    constexpr auto c = categorize<wide<T, N>>();
+    if constexpr(O::contains(lower) || O::contains(upper)) return rec.behavior(cpu_{}, o, v);
+    else if constexpr (std::same_as<T, eve::float16_t> && !O::contains(pedantic))
+    {
+      if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32(eve::rec, v);
+      else if constexpr (c == category::float16x8)          return _mm_rcp_ph(v);
+      else if constexpr (c == category::float16x16)         return _mm256_rcp_ph(v);
+      else if constexpr (c == category::float16x32)         return _mm512_rcp_ph(v);
+    }
+    else if constexpr(O::contains(raw))
+    {
+     if      constexpr( c == category::float32x16) return _mm512_rcp14_ps(v);
+      else if constexpr( c == category::float64x8 ) return _mm512_rcp14_pd(v);
+      else if constexpr( c == category::float32x8 )
+      {
+        if constexpr( current_api >= avx512 ) return _mm256_rcp14_ps(v);
+        else return _mm256_rcp_ps(v);
+      }
+      else if constexpr( c == category::float64x4 )
+      {
+        if constexpr( current_api >= avx512 ) return _mm256_rcp14_pd(v);
+        else
+        {
+          return _mm256_cvtps_pd(_mm_rcp_ps(_mm256_cvtpd_ps(v)));
+        }
+      }
+      else if constexpr( c == category::float32x4 )
+      {
+        if constexpr( current_api >= avx512 ) return _mm_rcp14_ps(v);
+        else return _mm_rcp_ps(v);
+      }
+      else if constexpr( c == category::float64x2 )
+      {
+        if constexpr( current_api >= avx512 ) return _mm_rcp14_pd(v);
+        else
+        {
+          return _mm_cvtps_pd(_mm_rcp_ps(_mm_cvtpd_ps(v)));
+        }
+      }
+    }
+    else if constexpr(O::contains(pedantic) || current_api < avx512)
+    {
+      if constexpr (std::same_as<T, eve::float16_t>)
+      {
+        if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32(eve::rec[pedantic], v);
+        else if constexpr (c == category::float16x8)          return _mm_div_ph(one(eve::as(v)), v);
+        else if constexpr (c == category::float16x16)         return _mm256_div_ph(one(eve::as(v)), v);
+        else if constexpr (c == category::float16x32)         return _mm512_div_ph(one(eve::as(v)), v);
+      }
+      else if constexpr (current_api >= avx512)
+      {
+        if      constexpr( c == category::float32x16) return _mm512_div_ps(one(eve::as(v)), v);
+        else if constexpr( c == category::float64x8 ) return _mm512_div_pd(one(eve::as(v)), v);
+        else                                          return rec.behavior(cpu_{}, o, v);
+      }
+      else if constexpr (current_api >= avx)
+      {
+        if      constexpr( c == category::float32x8 ) return _mm256_div_ps(one(eve::as(v)), v);
+        else if constexpr( c == category::float64x4 ) return _mm256_div_pd(one(eve::as(v)), v);
+        else                                          return rec.behavior(cpu_{}, o, v);
+      }
+      else
+      {
+        if      constexpr( c == category::float32x4 ) return _mm_div_ps(one(eve::as(v)), v);
+        else if constexpr( c == category::float64x2 ) return _mm_div_pd(one(eve::as(v)), v);
+        else                                          return rec.behavior(cpu_{}, o, v);
+      }
+    }
+    else
+    {
+      auto x = rec[raw](v);
+      x = fma(fnma(x, v, one(eve::as(v))), x, x);
+      if constexpr(std::same_as<T, double>)
+      {
+        x =  fma(fnma(x, v, one(eve::as(v))), x, x);
+      }
+      x =  if_else (is_not_nan(v) && is_nan(x),  x & inf(eve::as(v)), x);
+      return if_else(is_eqz(v),
+                     v | inf(eve::as(v)),
+                     if_else(is_infinite(v),
+                             v & mzero(eve::as(v)),
+                             x)
+                    );
+    }
+  }
+
+// -----------------------------------------------------------------------------------------------
+// Masked case
+  template<conditional_expr C, floating_scalar_value T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> rec_(EVE_REQUIRES(avx512_),
+                                  C const                & mask,
+                                  O const                & opts,
+                                  wide<T, N> const       & a0) noexcept
+  requires(x86_abi<abi_t<T, N>> && !O::contains(mod))
+  {
+    constexpr auto c = categorize<wide<T, N>>();
+    auto src = alternative(mask, a0, as(a0));
+
+    if constexpr( C::is_complete )                              return src;
+    else if constexpr(O::contains(lower) || O::contains(upper)) return rec[opts][mask].retarget(cpu_{}, a0);
+    else
+    {
+      auto l   = expand_mask(mask, as(a0));
+      auto m   = l.storage().value;
+
+      if constexpr (std::same_as<T, eve::float16_t> && !O::contains(pedantic))
+      {
+        if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32_masked(eve::rec, mask, a0);
+        else if constexpr (c == category::float16x8)          return _mm_mask_rcp_ph(src, m, a0);
+        else if constexpr (c == category::float16x16)         return _mm256_mask_rcp_ph(src, m, a0);
+        else if constexpr (c == category::float16x32)         return _mm512_mask_rcp_ph(src, m, a0);
+      }
+      if constexpr(O::contains(raw))
+      {
+        if      constexpr( c == category::float32x16) return _mm512_mask_rcp14_ps(src, m, a0);
+        else if constexpr( c == category::float64x8 ) return _mm512_mask_rcp14_pd(src, m, a0);
+        else if constexpr( c == category::float32x8 ) return _mm256_mask_rcp14_ps(src, m, a0);
+        else if constexpr( c == category::float64x4 ) return _mm256_mask_rcp14_pd(src, m, a0);
+        else if constexpr( c == category::float32x4 ) return _mm_mask_rcp14_ps(src, m, a0);
+        else if constexpr( c == category::float64x2 ) return _mm_mask_rcp14_pd(src, m, a0);
+      }
+      else  if constexpr(O::contains(pedantic))
+      {
+        if constexpr( c == category::float32x16 )
+          return _mm512_mask_div_ps(src, m, one(eve::as(a0)), a0);
+        else if constexpr( c == category::float64x8 )
+          return _mm512_mask_div_pd(src, m, one(eve::as(a0)), a0);
+        else if constexpr( c == category::float32x8 )
+          return _mm256_mask_div_ps(src, m, one(eve::as(a0)), a0);
+        else if constexpr( c == category::float64x4 )
+          return _mm256_mask_div_pd(src, m, one(eve::as(a0)), a0);
+        else if constexpr( c == category::float32x4 )
+          return _mm_mask_div_ps(src, m, one(eve::as(a0)), a0);
+        else if constexpr( c == category::float64x2 )
+          return _mm_mask_div_pd(src, m, one(eve::as(a0)), a0);
+        else if constexpr (std::same_as<T, eve::float16_t>)
+        {
+          if      constexpr (!_::supports_fp16_vector_ops) return apply_fp16_as_fp32_masked(eve::rec[pedantic], mask, a0);
+          else if constexpr (c == category::float16x8)          return _mm_mask_div_ph(src, m, one(eve::as(a0)), a0);
+          else if constexpr (c == category::float16x16)         return _mm256_mask_div_ph(src, m, one(eve::as(a0)), a0);
+          else if constexpr (c == category::float16x32)         return _mm512_mask_div_ph(src, m, one(eve::as(a0)), a0);
+        }
+      }
+      else
+      {
+        auto x = rec[mask][raw](a0);
+        x = if_else(mask, fma(fnma(x, a0, one(eve::as(a0))), x, x), a0);
+        if constexpr(std::same_as<T, double>)
+        {
+          x =  if_else(mask,fma(fnma(x, a0, one(eve::as(a0))), x, x), a0);
+        }
+
+        return if_else(is_eqz(a0) && l,
+                       a0 | inf(eve::as(a0)),
+                       if_else(is_infinite(a0) && l,
+                               a0 & mzero(eve::as(a0)),
+                               x)
+                      );
+      }
+    }
+  }
+}

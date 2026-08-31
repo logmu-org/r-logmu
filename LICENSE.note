@@ -1,0 +1,15 @@
+The logmu package as a whole is distributed under the Apache License (see LICENSE.md).
+
+It includes code from the EVE (Expressive Vector Engine) library (src/eve/),
+which is distributed under the Boost Software License, Version 1.0:
+
+  Copyright EVE Project Contributors.
+  Distributed under the Boost Software License, Version 1.0.
+  (See src/eve/LICENSE.txt or http://www.boost.org/LICENSE_1_0.txt)
+
+It also includes code from the SPY (C++ Informations Broker) library (src/spy/),
+which is distributed under the Boost Software License, Version 1.0:
+
+  Copyright SPY Project Contributors.
+  Distributed under the Boost Software License, Version 1.0.
+  (See src/spy/LICENSE.txt or http://www.boost.org/LICENSE_1_0.txt)

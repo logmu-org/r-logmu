@@ -1,0 +1,113 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/arch.hpp>
+#include <eve/traits/overload.hpp>
+#include <eve/traits/bit_value.hpp>
+
+namespace eve
+{
+  template<typename Options>
+  struct bit_or_t : bit_callable<bit_or_t, Options>
+  {
+    template<value T0, value... Ts>
+    EVE_FORCEINLINE constexpr bit_value_t<T0, Ts...> operator()(T0 t0, Ts...ts) const noexcept
+    {
+      static_assert(_::bit_validate_mask_for<decltype(this->options()), T0, Ts...>(),
+        "[eve::bit_or] - Masking is not supported for inputs of different lane count");
+
+      return EVE_DISPATCH_CALL(t0, ts...);
+    }
+
+    template<eve::non_empty_product_type Tup>
+    EVE_FORCEINLINE constexpr kumi::apply_traits_t<bit_value, Tup> operator()(Tup const& t) const noexcept
+    {
+      static_assert(_::bit_validate_mask_for<decltype(this->options()), Tup>(),
+        "[eve::bit_or] - Masking is not supported for inputs of different lane count");
+
+      return EVE_DISPATCH_CALL(t);
+    }
+
+    EVE_CALLABLE_OBJECT(bit_or_t, bit_or_);
+  };
+
+//================================================================================================
+//! @addtogroup core_bitops
+//! @{
+//!   @var bit_or
+//!   @brief `bit_callable` object computing the bitwise OR of its arguments.
+//!
+//!   @groupheader{Header file}
+//!
+//!   @code
+//!   #include <eve/module/core.hpp>
+//!   @endcode
+//!
+//!   @groupheader{Callable Signatures}
+//!
+//!   @code
+//!   namespace eve
+//!   {
+//!      // Regular overloads
+//!      constexpr auto bit_or(value auto x, value auto ... xs)                          noexcept; // 1
+//!      constexpr auto bit_or(eve::non_empty_product_type auto const& tup)             noexcept; // 2
+//!
+//!      // Lanes masking
+//!      constexpr auto bit_or[conditional_expr auto c](/*any of the above overloads*/)  noexcept; // 3
+//!      constexpr auto bit_or[logical_value auto m](/*any of the above overloads*/)     noexcept; // 3
+//!   }
+//!   @endcode
+//!
+//!   **Parameters**
+//!
+//!     * `x`: first [argument](@ref eve::value).
+//!     * `xs...`: other [arguments](@ref eve::value).
+//!     * `c`: [Conditional expression](@ref eve::conditional_expr) masking the operation.
+//!     * `m`: [Logical value](@ref eve::logical_value) masking the operation.
+//!
+//!   **Return value**
+//!      1. The value of the bitwise OR of its arguments converted to the common `bit_value` of the parameters.
+//!      2. Equivalent to the call on the elements of the tuple.
+//!      3. [The operation is performed conditionnaly](@ref conditional). This is only supported when all parameters
+//!         share the same number of lanes or are scalars.
+//!
+//!    @note
+//!      Although the infix notation with `|` is supported for two parameters, the `|` operator on
+//!      standard scalar types is the original one and so can lead to automatic promotion.
+//!      Moreover, and due to C++ limitations is not available for floating point scalar entries.
+//!
+//!  @groupheader{Example}
+//!  @godbolt{doc/core/bit_or.cpp}
+//================================================================================================
+  inline constexpr auto bit_or = functor<bit_or_t>;
+//================================================================================================
+//! @}
+//================================================================================================
+
+  template <typename Options>
+  constexpr auto neutral(bit_or_t<Options>) noexcept { return eve::zero; }
+}
+
+#include <eve/module/core/regular/impl/bit_or.hpp>
+
+#if defined(EVE_INCLUDE_POWERPC_HEADER)
+#  include <eve/module/core/regular/impl/simd/ppc/bit_or.hpp>
+#endif
+
+#if defined(EVE_INCLUDE_X86_HEADER)
+#  include <eve/module/core/regular/impl/simd/x86/bit_or.hpp>
+#endif
+
+#if defined(EVE_INCLUDE_ARM_NEON_HEADER)
+#  include <eve/module/core/regular/impl/simd/arm/neon/bit_or.hpp>
+#endif
+
+#if defined(EVE_INCLUDE_ARM_SVE_HEADER)
+#  include <eve/module/core/regular/impl/simd/arm/sve/bit_or.hpp>
+#endif

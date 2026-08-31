@@ -1,0 +1,95 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/detail/kumi.hpp>
+#include <eve/traits/cardinal.hpp>
+#include <eve/concept/vectorized.hpp>
+
+namespace eve
+{
+  namespace _
+  {
+    template<typename T0, typename... Ts>
+    consteval auto lanes_check()
+    {
+      // Find largest lanes as a reference
+      std::ptrdiff_t cards[] = { simd_value<T0> ? cardinal_v<T0> : 0, (simd_value<Ts> ? cardinal_v<Ts> : 0)... };
+
+      auto max_card = cards[0];
+      for(auto c : cards) max_card = max_card < c ? c : max_card;
+
+      // Check all lanes is either 1 or equal to max_card
+      for(auto c : cards)
+      {
+        if(c != 0 && c != max_card)
+            return false;
+      }
+      return true;
+    }
+
+    template<eve::product_type T>
+    consteval auto tuple_lanes_check()
+    {
+      if constexpr(eve::sized_product_type<T,0>) return true;
+      else
+      {
+        return [&]<std::size_t... I>(std::index_sequence<I...>)
+        {
+          return lanes_check<kumi::element_t<I,T>...>();
+        }(std::make_index_sequence<kumi::size_v<T>>());
+      }
+    }
+  }
+
+  //================================================================================================
+  //! @addtogroup traits
+  //! @{
+  //!  @var same_lanes_or_scalar
+  //!
+  //!  @tparam Ts Type to process
+  //!
+  //!  @brief Checks that all types `Ts` are either scalar or share a common number of lanes.
+  //!
+  //!  **Required header:** `#include <eve/concept/same_lanes.hpp>`
+  //! @}
+  //================================================================================================
+  template<typename... Ts>
+  concept same_lanes_or_scalar  = _::lanes_check<Ts...>();
+
+  //================================================================================================
+  //! @addtogroup traits
+  //! @{
+  //!  @var same_lanes_or_scalar_tuple
+  //!
+  //!  @tparam T Product type to process
+  //!
+  //!  @brief Checks that all types within a product type are either scalar or share a common number of lanes.
+  //!
+  //!  **Required header:** `#include <eve/concept/same_lanes.hpp>`
+  //! @}
+  //================================================================================================
+  template<typename T>
+  concept same_lanes_or_scalar_tuple  = _::tuple_lanes_check<T>();
+
+  //================================================================================================
+  //! @addtogroup traits
+  //! @{
+  //!  @var same_lanes
+  //!
+  //!  @tparam T0 [SIMD Type](@ref eve::simd_value)  to process.
+  //!  @tparam Ts [SIMD Types](@ref eve::simd_value) to process.
+  //!
+  //!  @brief Checks that all SIMD types `Ts` share a common number of lanes.
+  //!
+  //!  **Required header:** `#include <eve/concept/same_lanes.hpp>`
+  //! @}
+  //================================================================================================
+  template<typename T0, typename... Ts>
+  concept same_lanes = (simd_value<T0> && ... && simd_value<Ts>) && ((cardinal_v<T0> == cardinal_v<Ts>) && ... && true);
+}

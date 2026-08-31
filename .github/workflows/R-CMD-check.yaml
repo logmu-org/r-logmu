@@ -1,0 +1,128 @@
+# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
+# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
+#
+# SPLIT IN TWO ON 2026-08-31 TO STAY INSIDE THE FREE MINUTES. GitHub bills by
+# runner: Linux 1x, Windows 2x, macOS 10x. The original single matrix -- macOS,
+# Windows and three Linux -- cost about 15 minute-units per minute of wall time,
+# and this package compiles a large SIMD library, so the jobs are not short.
+# macOS alone was two thirds of the bill.
+#
+#   check           every push and PR    Windows + Linux release + Linux devel
+#   check-extended  weekly, or on demand macOS + Linux oldrel-1
+#
+# That is 4 minute-units against 15 for the common case, and macOS still runs
+# every Monday. TO PUT macOS BACK ON EVERY PUSH, move its entry from the second
+# matrix to the first -- both jobs run identical steps, deliberately, so an
+# entry can be moved between them without any other change.
+
+on:
+  push:
+    branches: [main, master]
+    # IGNORE, NOT INCLUDE. An allow-list would silently skip a check when
+    # something relevant moved into a path nobody remembered to add. This list
+    # only holds files that cannot affect `R CMD check`, so anything new runs
+    # the check until somebody decides otherwise.
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'cran-comments.md'
+      - '.github/workflows/pkgdown.yaml'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'cran-comments.md'
+      - '.github/workflows/pkgdown.yaml'
+  schedule:
+    # Mondays, 06:00 UTC. The platforms that are too expensive to run on push.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+name: R-CMD-check.yaml
+
+permissions: read-all
+
+# A burst of pushes used to start a full matrix each time. Only the newest is
+# worth finishing. Scheduled runs group separately so a push cannot cancel the
+# weekly macOS check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: "!contains(github.event.head_commit.message, '[skip checks]') && github.event_name != 'schedule'"
+    runs-on: ${{ matrix.config.os }}
+
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: windows-latest, r: 'release'}
+          - {os: ubuntu-latest,  r: 'release'}
+          - {os: ubuntu-latest,  r: 'devel', http-user-agent: 'release'}
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+
+  check-extended:
+    if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
+    runs-on: ${{ matrix.config.os }}
+
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: macos-latest,  r: 'release'}
+          - {os: ubuntu-latest, r: 'oldrel-1'}
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'

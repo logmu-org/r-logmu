@@ -1,0 +1,61 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/concept/value.hpp>
+#include <eve/detail/category.hpp>
+#include <eve/detail/implementation.hpp>
+#include <eve/traits/apply_fp16.hpp>
+
+namespace eve::_
+{
+  template<typename T, typename N, callable_options O>
+  EVE_FORCEINLINE wide<T, N> max_(EVE_REQUIRES(neon128_),
+                                  O          const & opts,
+                                  wide<T, N> const & v0,
+                                  wide<T, N> const & v1) noexcept
+  requires arm_abi<abi_t<T, N>>
+  {
+    if constexpr(O::contains(numeric) || O::contains(pedantic))
+    {
+      return max_(EVE_TARGETS(cpu_), opts, v0, v1);
+    }
+    else
+    {
+      constexpr auto cat = categorize<wide<T, N>>();
+
+      if constexpr( cat == category::int32x4 ) return vmaxq_s32(v0, v1);
+      else if constexpr( cat == category::int16x8 ) return vmaxq_s16(v0, v1);
+      else if constexpr( cat == category::int8x16 ) return vmaxq_s8(v0, v1);
+      else if constexpr( cat == category::uint32x4 ) return vmaxq_u32(v0, v1);
+      else if constexpr( cat == category::uint16x8 ) return vmaxq_u16(v0, v1);
+      else if constexpr( cat == category::uint8x16 ) return vmaxq_u8(v0, v1);
+      else if constexpr( cat == category::float32x4 ) return vmaxq_f32(v0, v1);
+      else if constexpr( cat == category::int32x2 ) return vmax_s32(v0, v1);
+      else if constexpr( cat == category::int16x4 ) return vmax_s16(v0, v1);
+      else if constexpr( cat == category::int8x8 ) return vmax_s8(v0, v1);
+      else if constexpr( cat == category::uint32x2 ) return vmax_u32(v0, v1);
+      else if constexpr( cat == category::uint16x4 ) return vmax_u16(v0, v1);
+      else if constexpr( cat == category::uint8x8 ) return vmax_u8(v0, v1);
+      else if constexpr( cat == category::float32x2 ) return vmax_f32(v0, v1);
+      else if constexpr( match(cat, category::float16) )
+      {
+        if      constexpr( !_::supports_fp16_vector_ops ) return apply_fp16_as_fp32(eve::max, v0, v1);
+        else if constexpr( cat == category::float16x8 )        return vmaxq_f16(v0, v1);
+        else if constexpr( cat == category::float16x4 )        return vmax_f16(v0, v1);
+      }
+      else if constexpr( current_api >= asimd )
+      {
+        if constexpr( cat == category::float64x1 ) return vmax_f64(v0, v1);
+        else if constexpr( cat == category::float64x2 ) return vmaxq_f64(v0, v1);
+        else if constexpr( sizeof(T) == 8 ) return map(max, v0, v1);
+      }
+      else if constexpr( sizeof(T) == 8 ) return map(max, v0, v1);
+    }
+  }
+}

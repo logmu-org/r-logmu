@@ -1,0 +1,3 @@
+configure text eol=lf
+cleanup   text eol=lf
+src/Makevars* text eol=lf

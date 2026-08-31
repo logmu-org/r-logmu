@@ -1,0 +1,39 @@
+---
+title: "Get started"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Get started}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(logmu)
+```
+
+## Installation
+
+```r
+# Install the released version from CRAN
+install.packages("logmu")
+
+# Or the development version from GitHub:
+# install.packages("pak")
+pak::pak("logmu-org/r-logmu")
+```
+
+## Example
+
+```{r example}
+library(logmu)
+```
+
+
+TODO

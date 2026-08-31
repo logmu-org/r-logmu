@@ -1,0 +1,163 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/arch.hpp>
+#include <eve/traits/overload.hpp>
+#include <eve/module/core/decorator/core.hpp>
+#include <eve/module/core.hpp>
+#include <eve/module/math/regular/pow_abs.hpp>
+
+namespace eve
+{
+  template<typename Options>
+  struct geommean_t : strict_tuple_callable<geommean_t, Options, pedantic_option, widen_option,
+                                     kahan_option>
+  {
+    template<value... Ts>
+    requires(eve::same_lanes_or_scalar<Ts...>)
+      EVE_FORCEINLINE upgrade_if_t<Options, common_value_t<Ts...>>
+    constexpr operator()(Ts...ts)
+      const noexcept
+    { return EVE_DISPATCH_CALL(ts...); }
+
+    template<eve::non_empty_product_type Tup>
+    requires(eve::same_lanes_or_scalar_tuple<Tup>)
+      EVE_FORCEINLINE constexpr  upgrade_if_t<Options, kumi::apply_traits_t<eve::common_value,Tup>>
+    operator()(Tup const& t) const noexcept
+    { return EVE_DISPATCH_CALL(t); }
+
+    EVE_CALLABLE_OBJECT(geommean_t, geommean_);
+  };
+
+//================================================================================================
+//! @addtogroup math_exp
+//! @{
+//! @var geommean
+//!
+//! @brief Callable object computing the geometric mean of the inputs.\f$ \left(\prod_{i = 1}^n
+//! x_i\right)^{1/n} \f$.
+//!
+//!
+//!   @groupheader{Header file}
+//!
+//!   @code
+//!   #include <eve/module/math.hpp>
+//!   @endcode
+//!
+//!   @groupheader{Callable Signatures}
+//!
+//!   @code
+//!   namespace eve
+//!   {
+//!      // Regular overloads
+//!      constexpr auto geommean(floating_value auto x, floating_value auto ... xs)        noexcept; // 1
+//!      constexpr auto geommean(eve::non_empty_product_type auto const& tup)             noexcept; // 2
+//!
+//!      // Lanes masking
+//!      constexpr auto geommean[conditional_expr auto c](/*any of the above overloads*/)  noexcept; // 3
+//!      constexpr auto geommean[logical_value auto m](/*any of the above overloads*/)     noexcept; // 3
+//!
+//!      // Semantic options
+//!      constexpr auto geommean[kahan](/*any of the above overloads*/)                    noexcept; // 4
+//!   }
+//!   @endcode
+//!
+//! **Parameters**
+//!
+//!    * `x`, `...xs`: [real](@ref eve::value) arguments.
+//!    * `tup`: [non empty tuple](@ref eve::non_empty_product_type) of arguments.
+//!    * `c`: [Conditional expression](@ref eve::conditional_expr) masking the operation.
+//!    * `m`: [Logical value](@ref eve::logical_value) masking the operation.
+//!
+//! **Return value**
+//!
+//!    1. The geometric mean of the inputs is returned
+//!    2. equivalent to the call on the elements of the tuple.
+//!    3. [The operation is performed conditionnaly](@ref conditional)
+//!    4. uses kahan like compensated algorithm for better accuracy.
+//!
+//!
+//!  @groupheader{External references}
+//!   *  [wikipedia Geometric mean](https://en.wikipedia.org/wiki/Geometric_mean)
+
+//!  @groupheader{Example}
+//!  @godbolt{doc/math/geommean.cpp}
+//================================================================================================
+  inline constexpr auto geommean = functor<geommean_t>;
+//================================================================================================
+//!  @}
+//================================================================================================
+
+  namespace _
+  {
+    template<callable_options O, typename... Ts>
+    EVE_FORCEINLINE constexpr auto geommean_(EVE_REQUIRES(emulated_), O const & o, Ts... ts) noexcept
+    requires (O::contains(widen) && _::fp16_should_apply<common_value_t<Ts...>>)
+    {
+      return geommean[o.drop(widen)](upgrade(ts)...);
+    }
+
+    template<typename T0, typename... Ts, callable_options O>
+    EVE_FORCEINLINE constexpr auto
+    geommean_(EVE_REQUIRES(cpu_), O const & o, T0 a0, Ts... args) noexcept
+    {
+      using r_t   = common_value_t<T0, Ts...>;
+      using elt_t = element_type_t<r_t>;
+      if constexpr(std::same_as<elt_t, eve::float16_t>)
+        return eve::_::apply_fp16_as_fp32(eve::geommean[o], a0, args...);
+      else
+      {
+        constexpr std::uint64_t sz = sizeof...(Ts)+1;
+        if constexpr(O::contains(widen))
+          return geommean[o.drop(widen)](upgrade(a0), upgrade(args)...);
+        else if constexpr(sz == 1)
+          return a0;
+        else if constexpr(sz == 2)
+        {
+          auto a = r_t(a0);
+          auto b = r_t(args...);
+          if (O::contains(pedantic))
+          {
+            auto m  = max(a, b);
+            auto im = if_else(is_nez(m), rec[pedantic](m), m);
+            auto z  = min(a, b) * im;
+            return if_else(is_nltz(a) || is_nltz(b), sqrt(z) * m, allbits);
+          }
+          else
+          {
+            return if_else(is_nltz(sign(a)*sign(b)), sqrt(abs(a))*sqrt(abs(b)), allbits);
+          }
+        }
+        else
+        {
+          elt_t invn  = rec(elt_t(sz));
+          auto e = -maxmag(exponent(r_t(a0)), exponent(r_t(args))...);
+          if constexpr(scalar_value<r_t> && (sizeof...(Ts)+1 >= eve::expected_cardinal_v<r_t>))
+          {
+            auto head = eve::as_wides(eve::one(as<r_t>()), r_t(ldexp[o](a0, e)), r_t(ldexp[o](args, e))...);
+            auto s = eve::mul[o](head);
+            auto p = butterfly_reduction(s, eve::mul[o]).get(0);
+            auto sgn = sign(p);
+            p = eve::pow_abs(p, invn);
+            p = ldexp[pedantic](p, -e);
+            return if_else(eve::is_even(sz) && is_ltz(sgn), eve::allbits, sgn * p);
+          }
+          else
+          {
+            auto p  = mul[o]( r_t(ldexp[o](a0, e)), r_t(ldexp[o](args, e))...);
+            auto sgn = sign(p);
+            p = pow_abs(p, invn);
+            p = ldexp[pedantic](p, -e);
+            return if_else(eve::is_even(sz) && is_ltz(sgn), eve::allbits, sgn * p);
+          }
+        }
+      }
+    }
+  }
+}

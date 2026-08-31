@@ -1,0 +1,148 @@
+//==================================================================================================
+/*
+  EVE - Expressive Vector Engine
+  Copyright : EVE Project Contributors
+  SPDX-License-Identifier: BSL-1.0
+*/
+//==================================================================================================
+#pragma once
+
+#include <eve/concept/value.hpp>
+#include <eve/detail/apply_over.hpp>
+#include <eve/detail/implementation.hpp>
+#include <eve/module/core/regular/is_eqz.hpp>
+#include <eve/module/core/regular/if_else.hpp>
+#include <eve/module/core/regular/add.hpp>
+#include <eve/module/core/regular/minus.hpp>
+#include <eve/module/core/constant/valmax.hpp>
+#include <eve/module/core/constant/valmin.hpp>
+#include <eve/module/core/constant/one.hpp>
+#include <eve/module/core/detail/modular.hpp>
+#include <eve/traits/apply_fp16.hpp>
+
+namespace eve
+{
+  template<typename Options>
+  struct oneminus_t : elementwise_callable<oneminus_t, Options, saturated_option, lower_option,
+                                           upper_option, strict_option, mod_option>
+  {
+    template<eve::value T>
+    constexpr EVE_FORCEINLINE T operator()(T a) const
+    { return EVE_DISPATCH_CALL(a); }
+
+    EVE_CALLABLE_OBJECT(oneminus_t, oneminus_);
+  };
+
+//================================================================================================
+//! @addtogroup core_arithmetic
+//! @{
+//!   @var oneminus
+//!   @brief `elementwise_callable` computing the value of one minus the input.
+//!
+//!   @groupheader{Header file}
+//!
+//!   @code
+//!   #include <eve/module/core.hpp>
+//!   @endcode
+//!
+//!   @groupheader{Callable Signatures}
+//!
+//!   @code
+//!   namespace eve
+//!   {
+//!      // Regular overloads
+//!      constexpr auto oneminus(value auto x)                          noexcept; // 1
+//!
+//!      // Lanes masking
+//!      constexpr auto oneminus[conditional_expr auto c](value auto x) noexcept; // 2
+//!      constexpr auto oneminus[logical_value auto m](value auto x)    noexcept; // 2
+//!
+//!      // Semantic option
+//!      constexpr auto oneminus[saturated ](value auto x)              noexcept; // 3
+//!      constexpr auto oneminus[lower](value auto x)                   noexcept; // 4
+//!      constexpr auto oneminus[upper](value auto x)                   noexcept; // 5
+//!      constexpr auto oneminus[lower][strict](value auto x)           noexcept; // 4
+//!      constexpr auto oneminus[upper][strict](value auto x)           noexcept; // 5
+//!      constexpr auto oneminus[mod = p](value auto x)                 noexcept; // 6
+//!   }
+//!   @endcode
+//!
+//!   **Parameters**
+//!
+//!     * `x`: [real](@ref eve::value) argument.
+//!     * `c`: [Conditional expression](@ref eve::conditional_expr) masking the operation.
+//!     * `m`: [Logical value](@ref eve::logical_value) masking the operation.
+//!     * `p`: modulo p operation. p must be flint less than maxflint.
+//!
+//!    **Return value**
+//!
+//!      1. The value of `1-x` is returned.
+//!      2. [The operation is performed conditionnaly](@ref conditional).
+//!      3. saturated version.
+//!      4. The operation is computed in a 'round toward \f$-\infty\f$ mode. The result is guaranted
+//!         to be less or equal to the exact one (except for Nans). Combined with `strict` the option
+//!       ensures generally faster computation, but strict inequality.
+//!      5. The operation is computed  in a 'round toward \f$\infty\f$ mode. The result is guaranted
+//!         to be greater or equal to the exact one (except for Nans). Combined with `strict` the option
+//!       ensures generally faster computation, but strict inequality.
+//!      6. compute the result in modular arithmetic. the parameter must be flint positive
+//!        and less than the modulus. The modulus itself must be less than maxflint.
+//!
+//!    @note
+//!      If an  [element](@ref glossary_elementwise) of the expected result is not representable in
+//!      the result type, the corresponding result [element](@ref glossary_elementwise) is
+//!      undefined.
+//!
+//!  @groupheader{Example}
+//!  @godbolt{doc/core/oneminus.cpp}
+//================================================================================================
+  inline constexpr auto oneminus = functor<oneminus_t>;
+//================================================================================================
+//! @}
+//================================================================================================
+
+  namespace _
+  {
+    template<typename T, callable_options O>
+    EVE_FORCEINLINE constexpr auto
+    oneminus_(EVE_REQUIRES(emulated_), O const & o, T v) noexcept
+      requires(_::fp16_should_apply<T>)
+    {
+      if constexpr (O::contains(upper) || O::contains(lower)) return _::map(oneminus[o], v);
+      else                                                    return apply_fp16_as_fp32(oneminus[o], v);
+    }
+
+    template<typename T, callable_options O>
+    EVE_FORCEINLINE constexpr T
+    oneminus_(EVE_REQUIRES(cpu_), O const & o, T v) noexcept
+    {
+      using elt_t = element_type_t<T>;
+      if constexpr( floating_scalar_value<elt_t> || !O::contains(saturated) )
+      {
+        if constexpr(O::contains(mod))
+        {
+          auto p = o[mod].value(as(v));
+          auto z = oneminus(v);
+          return eve::if_else(z < 0, z+p, z);
+        }
+        else
+          return add[o](one(eve::as<T>()), minus[o](v));
+      }
+      else
+      {
+        if constexpr( std::is_unsigned_v<elt_t> )
+        {
+          return one[is_eqz(v)](as(v));
+        }
+        else if constexpr( scalar_value<T> )
+        {
+          return (v <= valmin(eve::as(v)) + 2) ? valmax(eve::as(v)) : oneminus(v);
+        }
+        else if constexpr( simd_value<T> )
+        {
+          return if_else(v < valmin(eve::as(v)) + 2, valmax(eve::as(v)), oneminus(v));
+        }
+      }
+    }
+  }
+}

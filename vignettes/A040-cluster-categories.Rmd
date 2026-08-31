@@ -1,0 +1,12 @@
+---
+title: "Cluster categories"
+output:
+  rmarkdown::html_vignette:
+    mathjax: default
+vignette: >
+  %\VignetteIndexEntry{Cluster categories}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+TODO
