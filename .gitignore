@@ -17,3 +17,7 @@ inst/doc
 # Working notes, deliberately untracked: a scratchpad rather than documentation,
 # and it named unannounced products. Kept on disk, out of the repo.
 _TODO.md
+
+# Debris from deliberately-failed test runs (the disable-and-recheck habit).
+# testthat writes the broken copies here; they are never part of the package.
+tests/testthat/_problems/
