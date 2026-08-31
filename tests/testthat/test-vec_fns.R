@@ -20,48 +20,6 @@ say <- function(what, N) {
   flush(stdout())
 }
 
-# TEMPORARY, 2026-08-31: how does it die, not just where.
-#
-# A Windows CI runner terminates silently inside `vec_pow` at N = 4. Running the
-# same call in a SUBPROCESS lets us read the exit code, and on Windows that code
-# names the fault: 0xC000001D (3221225501) is an illegal instruction, meaning
-# the binary used something the CPU does not have; 0xC0000005 (3221225477) is an
-# access violation and 0xC00000FD (3221225725) a stack overflow, meaning a
-# memory bug instead. The distinction decides where to look next.
-#
-# Remove once the failure is understood.
-test_that("how vec_pow dies, if it dies", {
-
-  script <- tempfile(fileext = ".R")
-  writeLines(c(
-    'library(logmu)',
-    'ux <- ((1:4 + 0) * 1.6180339887) %% 1',
-    'y  <- (((1:4 + 1) * 1.6180339887) %% 1) * 2 - 1',
-    'invisible(vec_pow(ux, y))',
-    'cat("PROBE SURVIVED VV\n")',
-    'invisible(vec_pow(ux, 0.1234))',
-    'cat("PROBE SURVIVED VS\n")',
-    'invisible(vec_pow(0.2345, y))',
-    'cat("PROBE SURVIVED SV\n")'
-  ), script)
-
-  out <- suppressWarnings(system2(
-    file.path(R.home("bin"), "Rscript"), shQuote(script),
-    stdout = TRUE, stderr = TRUE
-  ))
-
-  status <- attr(out, "status")
-  if (is.null(status)) status <- 0L
-
-  cat("[probe] exit status:", status, "
-")
-  cat("[probe] output:", paste(out, collapse = " | "), "
-")
-  flush(stdout())
-
-  succeed()
-})
-
 test_that("vector unary functions", {
 
   test_functions <- function(N)

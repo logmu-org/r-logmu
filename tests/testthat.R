@@ -39,4 +39,16 @@ LoudCheck <- R6::R6Class(
   )
 )
 
-test_check("logmu", reporter = LoudCheck$new())
+# TEMPORARY, 2026-08-31: run ONLY the vector-function file.
+#
+# The Windows runner dies inside it, but at a DIFFERENT operation each run --
+# `pow` at N = 4 one time, `exp` at N = 1 the next. A wandering crash point is
+# memory corruption, not a bad instruction, and the damage may well be done by
+# something that ran earlier: the engine and thread-pool tests come before this
+# file alphabetically.
+#
+# If this file passes alone, it is a victim and the corruption is upstream.
+# If it still dies, the fault really is here.
+#
+# Restore to `test_check("logmu", reporter = LoudCheck$new())` afterwards.
+test_check("logmu", filter = "vec_fns", reporter = LoudCheck$new())
