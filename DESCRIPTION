@@ -30,6 +30,7 @@ Imports:
     pillar (>= 1.9.0)
 Suggests: 
     knitr,
+    R6,
     rmarkdown,
     testthat (>= 3.0.0)
 LinkingTo: 

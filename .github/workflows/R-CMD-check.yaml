@@ -67,6 +67,10 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      # SHOW THE WHOLE TEST OUTPUT, NOT THE LAST 13 LINES. That default cut off
+      # everything before the point a Windows runner died in the suite, which
+      # is the only place the reason would have appeared. 0 means no limit.
+      _R_CHECK_TESTS_NLINES_: 0
 
     steps:
       - uses: actions/checkout@v6
@@ -115,6 +119,10 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      # SHOW THE WHOLE TEST OUTPUT, NOT THE LAST 13 LINES. That default cut off
+      # everything before the point a Windows runner died in the suite, which
+      # is the only place the reason would have appeared. 0 means no limit.
+      _R_CHECK_TESTS_NLINES_: 0
 
     steps:
       - uses: actions/checkout@v6
