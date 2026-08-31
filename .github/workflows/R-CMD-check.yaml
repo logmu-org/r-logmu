@@ -88,6 +88,16 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+          # FAIL ON ERRORS, NOT ON WARNINGS. The action's default is to fail on
+          # a WARNING, and this package has one that cannot be fixed: the
+          # vendored EVE headers carry pragmas suppressing diagnostics, which
+          # `R CMD check` reports and which we are not going to patch out of
+          # somebody else's library. With the default, CI could never be green.
+          #
+          # THE COST IS REAL: a NEW warning will no longer fail the build. The
+          # baseline is 1 WARNING (EVE pragmas) + 1 NOTE (AVX flags), so read
+          # the check output rather than trusting the tick.
+          error-on: '"error"'
 
   check-extended:
     if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
@@ -126,3 +136,13 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+          # FAIL ON ERRORS, NOT ON WARNINGS. The action's default is to fail on
+          # a WARNING, and this package has one that cannot be fixed: the
+          # vendored EVE headers carry pragmas suppressing diagnostics, which
+          # `R CMD check` reports and which we are not going to patch out of
+          # somebody else's library. With the default, CI could never be green.
+          #
+          # THE COST IS REAL: a NEW warning will no longer fail the build. The
+          # baseline is 1 WARNING (EVE pragmas) + 1 NOTE (AVX flags), so read
+          # the check output rather than trusting the tick.
+          error-on: '"error"'

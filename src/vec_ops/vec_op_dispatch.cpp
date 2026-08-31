@@ -64,8 +64,26 @@ const tier_table& select_tier()
   // __builtin_cpu_supports() checks both CPUID feature bits and (for AVX
   // families) OS support via XGETBV, so a CPU with AVX-512 silicon but no OS
   // ZMM-save support correctly falls back.
-  if (__builtin_cpu_supports("avx512f")) return avx512_tbl;
-  if (__builtin_cpu_supports("avx2"))    return avx2_tbl;
+  //
+  // EVERY FEATURE THE KERNEL WAS COMPILED WITH HAS TO BE CHECKED, not just the
+  // family's base one. `Makevars` builds the AVX-512 tier with -mavx512f
+  // -mavx512cd -mavx512bw -mavx512dq -mavx512vl, so the compiler may emit any
+  // of those instructions anywhere in that translation unit. Testing only
+  // `avx512f` lets a CPU that has F but lacks one of the others through, and
+  // the first instruction it does not implement kills the process outright --
+  // SIGILL, no R error, no test output, just a dead session. The AVX2 tier is
+  // built with -mavx2 -mfma and needs both for the same reason.
+  //
+  // The guard and the flags must be changed together. If a tier gains a flag,
+  // it gains a check here.
+  if (__builtin_cpu_supports("avx512f")
+      && __builtin_cpu_supports("avx512cd")
+      && __builtin_cpu_supports("avx512bw")
+      && __builtin_cpu_supports("avx512dq")
+      && __builtin_cpu_supports("avx512vl")) return avx512_tbl;
+
+  if (__builtin_cpu_supports("avx2")
+      && __builtin_cpu_supports("fma")) return avx2_tbl;
 #endif
   return baseline_tbl;
 }
