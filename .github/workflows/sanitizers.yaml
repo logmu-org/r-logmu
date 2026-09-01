@@ -16,6 +16,18 @@
 # because CRAN runs it, but the wandering crash is a memory-error signature and
 # ASan is what will name it.
 #
+# VALGRIND CATCHES THE ONE THING ASAN STRUCTURALLY CANNOT: reading memory that
+# was never initialised. Added on 2026-09-01 after ASan and UBSan both came
+# back clean ON THE AVX2 TIER, which is where every Windows crash has been. An
+# uninitialised read fits the evidence better than anything else considered:
+# it works most of the time, fails occasionally, and lands somewhere different
+# each run, because what it reads is whatever happened to be in that memory.
+#
+# The valgrind job is SLOW -- tens of minutes, since every instruction is
+# interpreted -- and it does NOT fail the build on findings. R itself produces
+# valgrind noise from its own allocator, so the output is surfaced to be read
+# rather than turned into a pass/fail signal that would cry wolf.
+#
 # WHAT THIS CANNOT DO. It runs on Linux, and the crash has only ever been seen
 # on Windows. If the fault is a genuine memory error in the shared kernel
 # templates it will be caught here, because those templates are the same code
@@ -40,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [clang-asan, clang-ubsan]
+        image: [clang-asan, clang-ubsan, valgrind]
     container:
       image: ghcr.io/r-hub/containers/${{ matrix.image }}
     env:
@@ -74,7 +86,12 @@ jobs:
         run: R CMD build . --no-build-vignettes
 
       - name: Check under sanitizer
-        run: R CMD check --no-manual --ignore-vignettes logmu_*.tar.gz
+        run: |
+          if [ "${{ matrix.image }}" = "valgrind" ]; then
+            R CMD check --no-manual --ignore-vignettes --use-valgrind logmu_*.tar.gz
+          else
+            R CMD check --no-manual --ignore-vignettes logmu_*.tar.gz
+          fi
 
       - name: Show R CMD check logs on failure
         if: failure()
@@ -85,10 +102,14 @@ jobs:
             cat "$f" 2>/dev/null || echo "(not present)"
           done
 
-      - name: Fail if a sanitizer reported anything
-        # ASan writes "ERROR: AddressSanitizer:" and UBSan "runtime error:".
-        # Both are looked for in either job, since the containers differ only in
-        # which sanitizer is compiled in.
+      - name: Report what the tools found
+        # ASan writes "ERROR: AddressSanitizer:", UBSan "runtime error:". Either
+        # fails the build: both are precise and do not cry wolf.
+        #
+        # VALGRIND ONLY REPORTS. R's own allocator generates diagnostics that are
+        # not our bug, so a pass/fail signal here would be noise. The lines that
+        # matter are the ones naming `logmu.so`, and they are pulled out
+        # separately so they are not lost in the rest.
         run: |
           found=0
           if grep -RIn "ERROR: AddressSanitizer" logmu.Rcheck/ ; then
@@ -99,6 +120,18 @@ jobs:
             echo "::error::UndefinedBehaviorSanitizer reported undefined behaviour (see above)."
             found=1
           fi
+
+          if [ "${{ matrix.image }}" = "valgrind" ]; then
+            echo "===== valgrind diagnostics mentioning logmu ====="
+            grep -RIn -A 12 "Invalid read\|Invalid write\|uninitialised value\|uninitialised byte" \
+              logmu.Rcheck/ | grep -B 6 "logmu.so" || echo "(none naming logmu.so)"
+            echo "===== valgrind diagnostic counts ====="
+            grep -RIoh "Invalid read\|Invalid write\|uninitialised value\|uninitialised byte" \
+              logmu.Rcheck/ | sort | uniq -c || true
+            echo "Valgrind does not fail this build -- read the output above."
+            exit 0
+          fi
+
           if [ "$found" -eq 1 ]; then exit 1; fi
           echo "CLEAN: no sanitizer diagnostics found."
 
