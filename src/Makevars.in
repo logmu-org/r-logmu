@@ -4,7 +4,7 @@ CXX_STD = CXX20
 
 # EVE is header-only; vendor its headers under src/eve/ (NOT inst, so they are
 # not installed or exposed via LinkingTo). The compiler runs with cwd = src/.
-PKG_CPPFLAGS = -I.
+PKG_CPPFLAGS = -I. -DLOGMU_BUILD_SIMD_TIERS=@LOGMU_BUILD_SIMD_TIERS@
 
 # cpp11.o is the cpp11-generated registration TU. The R-free vectorised ops
 # live under src/vec_ops/; R does not auto-compile a subfolder, so those

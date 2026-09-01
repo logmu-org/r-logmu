@@ -9,8 +9,25 @@
 
 #include <cstddef>   // std::ptrdiff_t
 
-// Is this an x86 target where AVX2 / AVX-512 tiers make sense?
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+// ARE THE AVX2 / AVX-512 TIERS PART OF THIS BUILD?
+//
+// THE BUILD DECIDES, NOT THIS HEADER. `configure` probes the compiler and picks
+// the objects to compile; it passes that decision here as
+// LOGMU_BUILD_SIMD_TIERS. Makevars.win sets it to 1, since Windows always
+// builds all three.
+//
+// This used to make its own judgement from __x86_64__, independently of
+// configure. The two could disagree -- and when configure's probe came back
+// empty in a sanitizer container, they did: the AVX objects were never
+// compiled while these declarations and the dispatch table still referred to
+// them, so the package failed to load with
+//
+//     undefined symbol: _ZN4tier4avx210simd_lanesEv
+//
+// The fallback below is for a build that does not run configure at all.
+#if defined(LOGMU_BUILD_SIMD_TIERS)
+#  define IS_X86_TARGET LOGMU_BUILD_SIMD_TIERS
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #  define IS_X86_TARGET 1
 #else
 #  define IS_X86_TARGET 0

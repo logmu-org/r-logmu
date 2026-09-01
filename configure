@@ -12,7 +12,26 @@ RBIN="${R_HOME}/bin/R"
 CXX=$("${RBIN}" CMD config CXX)
 
 # Ask the compiler what it targets (arch macros are independent of -std).
-DEFS=$(printf '' | ${CXX} -E -dM - 2>/dev/null || true)
+#
+# TWO WAYS OF ASKING, because one of them failed silently. Reading from stdin
+# came back empty in the R-hub clang sanitizer container, and the empty answer
+# fell through to ARCH=other -- so the AVX objects were not compiled while the
+# headers still declared and referenced them, and the package would not load:
+#
+#     undefined symbol: _ZN4tier4avx210simd_lanesEv
+#
+# `-x c++ /dev/null` is the more portable spelling. The stdin form is kept as a
+# fallback for a compiler that dislikes /dev/null.
+DEFS=$(${CXX} -E -dM -x c++ /dev/null 2>/dev/null || true)
+if [ -z "${DEFS}" ]; then
+  DEFS=$(printf '' | ${CXX} -E -dM - 2>/dev/null || true)
+fi
+
+if [ -z "${DEFS}" ]; then
+  echo "configure: WARNING: could not read target macros from the compiler." >&2
+  echo "configure:          Compiler was: ${CXX}" >&2
+  echo "configure:          Building the BASELINE kernel only -- no AVX2, no AVX-512." >&2
+fi
 
 ARCH=other
 case " ${DEFS} " in
@@ -21,11 +40,29 @@ case " ${DEFS} " in
 esac
 
 SIMD_OBJECTS=""
+BUILD_SIMD_TIERS=0
 if [ "${ARCH}" = "x86" ]; then
   SIMD_OBJECTS="vec_ops/vec_kernel_avx2.o vec_ops/vec_kernel_avx512.o"
+  BUILD_SIMD_TIERS=1
 fi
 
-sed "s|@LOGMU_SIMD_OBJECTS@|${SIMD_OBJECTS}|" src/Makevars.in > src/Makevars
+# SAY WHICH WAY IT WENT. Losing the SIMD tiers silently is the failure worth
+# guarding against: they are the point of the package.
+echo "configure: target architecture: ${ARCH}"
+if [ "${BUILD_SIMD_TIERS}" = "1" ]; then
+  echo "configure: building SIMD tiers: baseline, AVX2, AVX-512"
+else
+  echo "configure: building SIMD tiers: baseline only"
+fi
+
+# THE C++ MUST BE TOLD WHAT THE BUILD DECIDED. `IS_X86_TARGET` in vec_ops.hpp
+# used to make its own, independent judgement from __x86_64__, so the two could
+# disagree -- and when they did, the objects were absent while the references
+# to them remained. Passing the decision through as a define makes disagreement
+# impossible.
+sed -e "s|@LOGMU_SIMD_OBJECTS@|${SIMD_OBJECTS}|" \
+    -e "s|@LOGMU_BUILD_SIMD_TIERS@|${BUILD_SIMD_TIERS}|" \
+    src/Makevars.in > src/Makevars
 
 if [ "${ARCH}" = "x86" ]; then
   {
