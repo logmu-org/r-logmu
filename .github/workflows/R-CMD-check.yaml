@@ -103,68 +103,6 @@ jobs:
           # the check output rather than trusting the tick.
           error-on: '"error"'
 
-      # A BACKTRACE FROM THE WINDOWS CRASH, which is the only thing left that
-      # will name the faulting function. The R process dies silently inside
-      # `vec_exp` on this runner and nowhere else, so inference has run out.
-      #
-      # `if: always()` because the check step above has already failed by then.
-      # The package is reused from the check's own library rather than rebuilt,
-      # which saves a full compile.
-      #
-      # Rterm.exe is the real binary; R.exe and Rscript.exe are launchers that
-      # gdb would not follow into.
-      #
-      # `printf`, not a heredoc: a heredoc terminator must sit at column 0,
-      # which is exactly where a YAML block scalar ends.
-      #
-      # TEMPORARY -- remove with the rest of the crash diagnostics.
-      - name: Backtrace the Windows crash
-        if: always() && runner.os == 'Windows'
-        shell: bash
-        run: |
-          set +e
-          # RUN THE TEST FILE, NOT A BARE CALL. Fifty direct `vec_exp()`
-          # calls survived on this runner with exit code 0, so the crash
-          # needs the testthat context. gdb has to be attached to that.
-          printf '%s\n' \
-            'library(testthat)' \
-            'library(logmu)' \
-            'cat("tier:", vec_active_tier(), "lanes:", vec_active_lanes(), "\n")' \
-            'flush(stdout())' \
-            'testthat::test_dir("tests/testthat", package = "logmu", filter = "vec_fns", stop_on_failure = FALSE)' \
-            'cat("PROBE SURVIVED\n")' \
-            > crash-probe.R
-          echo "----- probe -----"
-          cat crash-probe.R
-
-          RBIN=$(Rscript -e 'cat(R.home("bin"))' | tr '\' '/')
-          RTERM=""
-          for c in "$RBIN/x64/Rterm.exe" "$RBIN/Rterm.exe"; do
-            if [ -f "$c" ]; then RTERM="$c"; break; fi
-          done
-          echo "Rterm: ${RTERM:-NOT FOUND}"
-
-          export R_LIBS="$(pwd)/check/logmu.Rcheck"
-          echo "R_LIBS: $R_LIBS"
-          ls "$R_LIBS" 2>/dev/null || echo "  (check library missing)"
-
-          echo "===== without gdb, for the exit code ====="
-          "$RTERM" --vanilla -f crash-probe.R
-          echo "exit code: $?"
-
-          GDB=""
-          for c in /c/rtools45/usr/bin/gdb.exe /c/rtools45/x86_64-w64-mingw32.static.posix/bin/gdb.exe; do
-            if [ -f "$c" ]; then GDB="$c"; break; fi
-          done
-          if [ -z "$GDB" ]; then GDB=$(command -v gdb 2>/dev/null); fi
-          echo "gdb: ${GDB:-NOT FOUND}"
-
-          if [ -n "$GDB" ]; then
-            echo "===== under gdb ====="
-            "$GDB" --batch -ex "set pagination off" -ex run -ex "bt full" -ex "thread apply all bt" --args "$RTERM" --vanilla -f crash-probe.R
-            echo "gdb exit: $?"
-          fi
-          exit 0
 
   check-extended:
     if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"

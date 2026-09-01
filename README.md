@@ -63,8 +63,8 @@ plot(by_lives)
 plot(by_amounts)
 ```
 
-<a href="articles/A000-get-started.html" class="btn btn-primary btn-lg">Get
-started</a>
+<a href="https://r-logmu.logmu.org/articles/A000-get-started.html"
+class="btn btn-primary btn-lg">Get started</a>
 
 [^1]: For avoidance of doubt, in case you’ve been led here by searching
     on common mortality keywords, **logmu** is not (currently) for
