@@ -1,0 +1,20 @@
+pandoc: 3.8.3
+pkgdown: 2.2.1
+pkgdown_sha: ~
+articles:
+  A000-get-started: A000-get-started.html
+  A010-analyse-experience-data: A010-analyse-experience-data.html
+  A020-fit-a-model: A020-fit-a-model.html
+  A030-test-multiple-models: A030-test-multiple-models.html
+  A040-cluster-categories: A040-cluster-categories.html
+  B010-measures-matter: B010-measures-matter.html
+  B020-a-over-e: B020-a-over-e.html
+  B030-log-likelihood: B030-log-likelihood.html
+  B040-proportional-hazards: B040-proportional-hazards.html
+  B050-suddenly-aic: B050-suddenly-aic.html
+  B060-overdispersion: B060-overdispersion.html
+  B070-incoherent-rating-factors: B070-incoherent-rating-factors.html
+last_built: 2026-09-01T22:09Z
+urls:
+  reference: https://r-logmu.logmu.org/reference
+  article: https://r-logmu.logmu.org/articles
