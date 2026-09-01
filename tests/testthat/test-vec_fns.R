@@ -126,6 +126,14 @@ test_that("vector binary functions", {
 # an infinite exponent where IEEE gives a finite answer or an infinity. The
 # eleven disagreements are listed below rather than hidden behind a comparison.
 
+# TEMPORARY, 2026-09-01: the crash moved into these blocks once the original
+# tests started passing. Same trick as `say()` above -- flushed, so it
+# survives an abrupt termination.
+mark <- function(...) {
+  cat("  [pow]", ..., "\n")
+  flush(stdout())
+}
+
 pow_awkward_bases <- c(0, -0, 1, -1, 2, -2, 0.5, -0.5, Inf, -Inf, NaN)
 pow_awkward_exponents <- c(0, 1, 2, 3, -1, -2, 0.5, -0.5, Inf, -Inf, NaN)
 
@@ -138,9 +146,12 @@ pow_ieee_departures <- data.frame(
 
 test_that("pow follows IEEE where R's ^ departs from it", {
 
+  mark("block: ieee departures")
+
   for (i in seq_len(nrow(pow_ieee_departures))) {
     row <- pow_ieee_departures[i, ]
     label <- paste0("pow(", row$x, ", ", row$y, ")")
+    mark("departure", row$x, row$y)
 
     expect_equal(vec_pow(row$x, row$y), row$expected, info = label)
     expect_equal(vec_pow(c(row$x, row$x), c(row$y, row$y)),
@@ -176,20 +187,27 @@ identical_pair <- function(value, against) {
 
 test_that("pow matches R's ^ everywhere else, vector against vector", {
 
+  mark("block: grid VV")
+
   grid <- pow_agreed_grid()
   expect_identical(vec_pow(grid$x, grid$y), grid$x^grid$y)
 })
 
 test_that("pow matches R's ^ everywhere else, with a scalar exponent", {
 
+  mark("block: grid VS")
+
   grid <- pow_agreed_grid()
   for (y in unique(grid$y)) {
+    mark("grid VS exponent", y)
     x <- grid$x[identical_pair(grid$y, y)]
     expect_identical(vec_pow(x, y), x^y, info = paste("exponent", y))
   }
 })
 
 test_that("the two rules everyone forgets", {
+
+  mark("block: x^0 and 1^y")
 
   # `x^0` is 1 for every x, and `1^y` is 1 for every y. Both are exactly where
   # exp(y * log x) goes wrong: log(0) is -Inf and 0 * -Inf is NaN, while
@@ -200,6 +218,8 @@ test_that("the two rules everyone forgets", {
 
 test_that("a negative base keeps its sign for integer exponents", {
 
+  mark("block: negative base")
+
   # `(-2)^3` is -8, not NaN, which exp(y * log x) could never produce.
   expect_identical(vec_pow(c(-2, -2, -2), c(1, 2, 3)), c(-2, 4, -8))
   expect_true(is.nan(vec_pow(-2, 0.5)))
@@ -208,6 +228,8 @@ test_that("a negative base keeps its sign for integer exponents", {
 #### The one vectorised shape: a scalar base ####
 
 test_that("a scalar base uses exp(y log x) and stays within a few ulp", {
+
+  mark("block: scalar base fast path")
 
   # THE FAST PATH, and the only place `pow` is vectorised: `1.02 ^ t` over a
   # vector of durations, which is what a projection factor looks like.
@@ -219,11 +241,14 @@ test_that("a scalar base uses exp(y log x) and stays within a few ulp", {
   y <- c(-30, -3.5, -1, -0.25, 0, 0.25, 1, 3.5, 30)
 
   for (x in c(1.02, 0.5, 2, 1e-3, 1e3)) {
+    mark("fast path base", x)
     expect_equal(vec_pow(x, y), x^y, tolerance = 1e-12, info = paste("base", x))
   }
 })
 
 test_that("a scalar base of one is exact for every exponent, including infinite", {
+
+  mark("block: base one")
 
   # Needs its own branch: log(1) is 0, and Inf * 0 is NaN, where pow(1, Inf) is
   # 1. Filled directly rather than computed.
@@ -231,6 +256,8 @@ test_that("a scalar base of one is exact for every exponent, including infinite"
 })
 
 test_that("the scalar-base fast path is exact for special exponents", {
+
+  mark("block: fast path specials")
 
   # Inside the guard -- x finite, positive, not 1 -- every special exponent
   # comes out right through exp(y log x), with no special-casing needed.
