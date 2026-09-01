@@ -102,25 +102,26 @@ return result;
 // including Inf, a negative base keeps its sign for integer exponents. The
 // engine already evaluates `Op::Pow` with `std::pow`, so the two now agree.
 //
-// THE ONE VECTORISED SHAPE is a scalar base, which is what a projection factor
-// looks like: `1.02 ^ t` over a vector of durations. Tim's idea, and it works
-// because the guard is one check OUTSIDE the loop and `log x` is computed once
-// in full scalar precision. With `x` finite, strictly positive and not 1, every
-// special exponent then falls out correctly:
+// NOTHING HERE IS VECTORISED, AND THAT IS DELIBERATE. A scalar-base fast path
+// computing exp(y log x) through the `mul` and `exp` kernels was written and
+// then removed on 2026-09-01, because it was the last thing standing when the
+// Windows crash was finally cornered: markers put the fault at `base 1.02` in
+// exactly that path.
 //
-//     y = 0     ->  0 * finite = 0  ->  exp(0) = 1      correct
-//     y = +Inf  ->  +-Inf           ->  Inf or 0        correct
-//     y = -Inf  ->  -+Inf           ->  0 or Inf        correct
-//     y = NaN   ->  NaN             ->  NaN             correct
+// WHAT WAS NOVEL ABOUT IT was calling a vector kernel IN PLACE -- the same
+// buffer passed as both `const double* arg` and `double* result`. Nowhere else
+// in the package does that; every other call has distinct R vectors either
+// side. Whether that is the fault or merely where it surfaced was not worth
+// another round of seven-minute CI cycles to establish, for an operation the
+// engine does not use.
 //
-// `x == 1` is filled directly: `log 1` is 0 and `Inf * 0` is NaN, where
-// `pow(1, Inf)` is 1. That path still uses the vectorised `mul` and `exp`
-// kernels, which are exercised everywhere and have never been implicated.
+// `x == 1` still gets its own branch. It is not an optimisation: `log 1` is 0
+// and `Inf * 0` is NaN, so any exp(y log x) formulation returns NaN where
+// `pow(1, Inf)` must be 1. `std::pow` gets it right on its own, but the branch
+// documents the trap for anyone tempted to reintroduce the fast path.
 //
-// THE COST is accuracy on that one path: relative error is about
-// |y log x| * epsilon, since error in the exponent becomes relative error after
-// `exp`. A few ulp for ordinary arguments. The tests require exactness for the
-// special values and tolerance elsewhere.
+// IF IT IS EVER WORTH VECTORISING AGAIN: measure first, and use a scratch
+// buffer rather than writing in place.
 [[cpp11::register]] cpp11::doubles cpp_vec_pow(cpp11::doubles x, cpp11::doubles y)
 {
   R_xlen_t n_x = x.size();
@@ -155,11 +156,6 @@ return result;
     if (base == 1.0)
     {
       for (R_xlen_t i = 0; i < n; ++i) { p_result[i] = 1.0; }
-    }
-    else if (std::isfinite(base) && base > 0.0)
-    {
-      tier::mul_VS_V(n, p_y, std::log(base), p_result);
-      tier::exp_V_V(n, p_result, p_result);
     }
     else
     {
