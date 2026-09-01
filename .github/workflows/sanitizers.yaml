@@ -1,0 +1,110 @@
+# AddressSanitizer and UndefinedBehaviorSanitizer, run on demand.
+#
+# WHY THIS EXISTS. A GitHub Windows runner crashed the R process inside the
+# vector-op tests, intermittently, with the fault landing in a DIFFERENT place
+# each run: `pow` at N = 4, `exp` at N = 1, `pow` at N = 3, a scalar-base path,
+# then `exp` at N = 1 again. A wandering fault is a memory error surfacing
+# wherever the damage happens to bite, and chasing the symptom one operation at
+# a time produced five wrong diagnoses over 2026-08-31 and 2026-09-01.
+#
+# A sanitizer is the right instrument for that: ASan reports a buffer overrun or
+# a use-after-free AT THE POINT OF THE ERROR rather than wherever it later
+# explodes, and UBSan catches undefined behaviour that happens to work on one
+# machine and not another.
+#
+# ASAN IS THE ONE THAT MATTERS HERE. UBSan is included because it is cheap and
+# because CRAN runs it, but the wandering crash is a memory-error signature and
+# ASan is what will name it.
+#
+# WHAT THIS CANNOT DO. It runs on Linux, and the crash has only ever been seen
+# on Windows. If the fault is a genuine memory error in the shared kernel
+# templates it will be caught here, because those templates are the same code
+# on every platform. If it is specific to Windows, to that runner's CPU, or to
+# the Rtools toolchain, a clean run here does NOT clear the code.
+#
+# Manual only: Actions tab -> "sanitizers" -> "Run workflow". Ordinary commit CI
+# is R-CMD-check.yaml. A run is slow -- the package compiles under the
+# sanitizer, EVE included, and the whole suite runs under it.
+
+name: sanitizers
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    name: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [clang-asan, clang-ubsan]
+    container:
+      image: ghcr.io/r-hub/containers/${{ matrix.image }}
+    env:
+      UBSAN_OPTIONS: print_stacktrace=1
+      # `detect_leaks=0`: R leaks by design at exit and we are hunting a
+      # corruption, not a leak. `abort_on_error=0` so the check completes and
+      # the report is written rather than the process dying at the first find.
+      ASAN_OPTIONS: print_stacktrace=1:detect_leaks=0:abort_on_error=0
+      # Vignettes are skipped, so missing Suggests must not become an error.
+      _R_CHECK_FORCE_SUGGESTS_: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build/test dependencies
+        # pak ships in the r-hub containers and fetches from the container's own
+        # binary repository, built for this R and libc++. It errors on failure,
+        # so this step fails loudly by itself.
+        run: >
+          R -q -e 'pak::pkg_install(c("cpp11", "testthat", "R6", "pillar",
+          "ggplot2", "gtable", "lifecycle", "datey"))'
+
+      - name: Report the SIMD tier the sanitizer build selects
+        # WHICH TIER RAN IS PART OF THE RESULT. A clean sanitizer run on the
+        # baseline tier says nothing about the AVX2 kernels, which is where the
+        # Windows crash has always appeared.
+        run: |
+          R CMD INSTALL --preclean .
+          R -q -e 'library(logmu); cat("tier:", vec_active_tier(), "lanes:", vec_active_lanes(), "\n")'
+
+      - name: Build source tarball
+        run: R CMD build . --no-build-vignettes
+
+      - name: Check under sanitizer
+        run: R CMD check --no-manual --ignore-vignettes logmu_*.tar.gz
+
+      - name: Show R CMD check logs on failure
+        if: failure()
+        run: |
+          for f in logmu.Rcheck/00install.out logmu.Rcheck/00check.log \
+                   logmu.Rcheck/tests/testthat.Rout logmu.Rcheck/tests/testthat.Rout.fail; do
+            echo "===================== $f ====================="
+            cat "$f" 2>/dev/null || echo "(not present)"
+          done
+
+      - name: Fail if a sanitizer reported anything
+        # ASan writes "ERROR: AddressSanitizer:" and UBSan "runtime error:".
+        # Both are looked for in either job, since the containers differ only in
+        # which sanitizer is compiled in.
+        run: |
+          found=0
+          if grep -RIn "ERROR: AddressSanitizer" logmu.Rcheck/ ; then
+            echo "::error::AddressSanitizer reported a memory error (see above)."
+            found=1
+          fi
+          if grep -RIn "runtime error:" logmu.Rcheck/ ; then
+            echo "::error::UndefinedBehaviorSanitizer reported undefined behaviour (see above)."
+            found=1
+          fi
+          if [ "$found" -eq 1 ]; then exit 1; fi
+          echo "CLEAN: no sanitizer diagnostics found."
+
+      - name: Upload check directory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logmu.Rcheck-${{ matrix.image }}
+          path: logmu.Rcheck/
