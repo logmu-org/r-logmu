@@ -100,12 +100,31 @@ reference:
   - mortality
   - mortality_const
   - mortality_table
-- title: A/E analysis
-  contents:
-  - aev_properties
 - title: Pronouns `.i` and `.t`
   contents:
   - pronoun_expressions
+  - variable
+  - indicator
+  - is_logmu_function
+- title: Choosing which records to count
+  contents:
+  - include
+  - includes
+  - category
+- title: A/E analysis
+  contents:
+  - aev
+  - aev_properties
+  - is_aev
+  - as.data.frame.aev
+- title: Charting an A/E
+  contents:
+  - aev_plot
+  - theme_aev
+- title: Running several analyses at once
+  contents:
+  - batch
+  - settings
 - title: Vector operations
   contents:
   - vec_active
