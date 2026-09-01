@@ -154,72 +154,6 @@ void NAME##_VS_V(vec_size n, const double* arg0,       double  arg1, double* res
 void NAME##_SV_V(vec_size n,       double  arg0, const double* arg1, double* result){ ::tier::SV_V(n,arg0,arg1,result,eve::NAME); }
 
 
-// POW IS NOT EVE'S, AND IS THE ONE OPERATION HERE THAT IS NOT VECTORISED
-// THROUGHOUT. Two reasons, both found the hard way on 2026-08-31.
-//
-// IT CRASHED. `eve::pow` on the AVX2 tier segfaulted on a GitHub Windows
-// runner -- inside `pow_VV_V`, on exactly one full four-lane vector, confirmed
-// by a gdb backtrace. It could not be reproduced on any machine here, on either
-// tier, with or without `gctorture`.
-//
-// IT WAS ALSO WRONG. Edge-case tests written before this change failed 16 ways
-// on the WORKING AVX-512 tier: `pow(NaN, Inf)` gave Inf, `pow(-2, 0.5)` was not
-// NaN, and more. The old tests only covered bases in (0, 1) and exponents in
-// (-1, 1), so none of it had ever been exercised.
-//
-// `std::pow` is correctly rounded and gets the whole IEEE 754 special-case
-// ladder right for nothing -- `x^0` is 1 for every x including NaN, `1^y` is 1
-// for every y including Inf, a negative base keeps its sign for integer
-// exponents. Reimplementing that vectorised is a great deal of branchless work
-// for an operation the engine does not even use: `Interpreter.hpp` evaluates
-// `Op::Pow` with `std::pow` already.
-//
-// THE ONE VECTORISED CASE is a scalar base, which is the shape a projection
-// factor takes -- `1.02 ^ t` over a vector of durations. Tim's idea, and it is
-// sound precisely because the guard is one check OUTSIDE the loop and `log x`
-// is computed once in full scalar precision. With `x` finite, strictly positive
-// and not 1, every special exponent then falls out correctly:
-//
-//     y = 0     ->  0 * finite = 0     ->  exp(0)  = 1     correct
-//     y = +Inf  ->  +-Inf              ->  Inf or 0        correct
-//     y = -Inf  ->  -+Inf              ->  0 or Inf        correct
-//     y = NaN   ->  NaN                ->  NaN             correct
-//
-// `x == 1` must be excluded because `log 1` is 0 and `Inf * 0` is NaN, where
-// `pow(1, Inf)` is 1. It is filled directly instead.
-//
-// THE COST is accuracy: relative error is about |y log x| * epsilon, because
-// error in the exponent becomes relative error after `exp`. A few ulp for
-// ordinary arguments, a few hundred near the edge of `exp`'s range. The tests
-// therefore require exactness for the special values and tolerance elsewhere.
-#define DEFINE_POW()                                                          \
-void pow_VV_V(vec_size n, const double* arg0, const double* arg1, double* result) \
-{                                                                             \
-  for (vec_size i = 0; i < n; ++i) { result[i] = std::pow(arg0[i], arg1[i]); }\
-}                                                                             \
-void pow_VS_V(vec_size n, const double* arg0, double arg1, double* result)    \
-{                                                                             \
-  for (vec_size i = 0; i < n; ++i) { result[i] = std::pow(arg0[i], arg1); }   \
-}                                                                             \
-void pow_SV_V(vec_size n, double arg0, const double* arg1, double* result)    \
-{                                                                             \
-  if (arg0 == 1.0)                                                            \
-  {                                                                           \
-    for (vec_size i = 0; i < n; ++i) { result[i] = 1.0; }                     \
-    return;                                                                   \
-  }                                                                           \
-                                                                              \
-  if (std::isfinite(arg0) && arg0 > 0.0)                                      \
-  {                                                                           \
-    const double log_arg0 = std::log(arg0);                                   \
-    ::tier::VS_V(n, arg1, log_arg0, result, eve::mul);                        \
-    ::tier::V_V(n, result, result, eve::exp);                                 \
-    return;                                                                   \
-  }                                                                           \
-                                                                              \
-  for (vec_size i = 0; i < n; ++i) { result[i] = std::pow(arg0, arg1[i]); }   \
-}
-
 #define DEFINE_TIER()                                          \
 int simd_lanes(){ return static_cast<int>(eve::wide<double>::size()); } \
 \
@@ -234,7 +168,6 @@ DEFINE_WRAPPER2(add)                                           \
 DEFINE_WRAPPER2(sub)                                           \
 DEFINE_WRAPPER2(mul)                                           \
 DEFINE_WRAPPER2(div)                                           \
-DEFINE_POW()                                                   \
 DEFINE_WRAPPER2(min)                                           \
 DEFINE_WRAPPER2(max)                                           \
 \

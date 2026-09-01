@@ -58,7 +58,6 @@ namespace NS                                                   \
   DECLARE_WRAPPER2(sub)                                        \
   DECLARE_WRAPPER2(mul)                                        \
   DECLARE_WRAPPER2(div)                                        \
-  DECLARE_WRAPPER2(pow)                                        \
   DECLARE_WRAPPER2(min)                                        \
   DECLARE_WRAPPER2(max)                                        \
 \
@@ -91,7 +90,6 @@ DECLARE_WRAPPER2(add)
 DECLARE_WRAPPER2(sub)
 DECLARE_WRAPPER2(mul)
 DECLARE_WRAPPER2(div)
-DECLARE_WRAPPER2(pow)
 DECLARE_WRAPPER2(min)
 DECLARE_WRAPPER2(max)
 

@@ -34,9 +34,11 @@ struct tier_table
 
   V_V_t neg_V_V, exp_V_V, expm1_V_V, log_V_V, log1p_V_V, m_from_q_V_V;
 
-  VV_V_t add_VV_V, sub_VV_V, mul_VV_V, div_VV_V, pow_VV_V, max_VV_V, min_VV_V;
-  VS_V_t add_VS_V, sub_VS_V, mul_VS_V, div_VS_V, pow_VS_V, max_VS_V, min_VS_V;
-  SV_V_t add_SV_V, sub_SV_V, mul_SV_V, div_SV_V, pow_SV_V, max_SV_V, min_SV_V;
+  // NO POW. It is implemented once in `vec_ops_for_R.cpp` and never
+  // dispatched -- see the comment there.
+  VV_V_t add_VV_V, sub_VV_V, mul_VV_V, div_VV_V, max_VV_V, min_VV_V;
+  VS_V_t add_VS_V, sub_VS_V, mul_VS_V, div_VS_V, max_VS_V, min_VS_V;
+  SV_V_t add_SV_V, sub_SV_V, mul_SV_V, div_SV_V, max_SV_V, min_SV_V;
 
   VSS_V_t clamp_VSS_V;
 };
@@ -46,9 +48,9 @@ struct tier_table
   #NS                         \
   , &NS::simd_lanes           \
   , &NS::neg_V_V, &NS::exp_V_V, &NS::expm1_V_V, &NS::log_V_V, &NS::log1p_V_V, &NS::m_from_q_V_V  \
-  , &NS::add_VV_V, &NS::sub_VV_V, &NS::mul_VV_V, &NS::div_VV_V, &NS::pow_VV_V, &NS::max_VV_V, &NS::min_VV_V \
-  , &NS::add_VS_V, &NS::sub_VS_V, &NS::mul_VS_V, &NS::div_VS_V, &NS::pow_VS_V, &NS::max_VS_V, &NS::min_VS_V \
-  , &NS::add_SV_V, &NS::sub_SV_V, &NS::mul_SV_V, &NS::div_SV_V, &NS::pow_SV_V, &NS::max_SV_V, &NS::min_SV_V \
+  , &NS::add_VV_V, &NS::sub_VV_V, &NS::mul_VV_V, &NS::div_VV_V, &NS::max_VV_V, &NS::min_VV_V \
+  , &NS::add_VS_V, &NS::sub_VS_V, &NS::mul_VS_V, &NS::div_VS_V, &NS::max_VS_V, &NS::min_VS_V \
+  , &NS::add_SV_V, &NS::sub_SV_V, &NS::mul_SV_V, &NS::div_SV_V, &NS::max_SV_V, &NS::min_SV_V \
   , &NS::clamp_VSS_V \
 }
 
@@ -115,7 +117,6 @@ DEFINE_WRAPPER2(add)
 DEFINE_WRAPPER2(sub)
 DEFINE_WRAPPER2(mul)
 DEFINE_WRAPPER2(div)
-DEFINE_WRAPPER2(pow)
 DEFINE_WRAPPER2(min)
 DEFINE_WRAPPER2(max)
 
