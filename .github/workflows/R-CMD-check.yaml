@@ -123,16 +123,15 @@ jobs:
         shell: bash
         run: |
           set +e
+          # RUN THE TEST FILE, NOT A BARE CALL. Fifty direct `vec_exp()`
+          # calls survived on this runner with exit code 0, so the crash
+          # needs the testthat context. gdb has to be attached to that.
           printf '%s\n' \
+            'library(testthat)' \
             'library(logmu)' \
             'cat("tier:", vec_active_tier(), "lanes:", vec_active_lanes(), "\n")' \
             'flush(stdout())' \
-            'x <- ((1:1) * 1.6180339887) %% 1' \
-            'for (i in 1:50) {' \
-            '  invisible(vec_exp(x))' \
-            '  cat("vec_exp ok", i, "\n")' \
-            '  flush(stdout())' \
-            '}' \
+            'testthat::test_dir("tests/testthat", package = "logmu", filter = "vec_fns", stop_on_failure = FALSE)' \
             'cat("PROBE SURVIVED\n")' \
             > crash-probe.R
           echo "----- probe -----"
@@ -162,7 +161,7 @@ jobs:
 
           if [ -n "$GDB" ]; then
             echo "===== under gdb ====="
-            "$GDB" --batch -ex "set pagination off" -ex run -ex "bt full" -ex "info registers rip" --args "$RTERM" --vanilla -f crash-probe.R
+            "$GDB" --batch -ex "set pagination off" -ex run -ex "bt full" -ex "thread apply all bt" --args "$RTERM" --vanilla -f crash-probe.R
             echo "gdb exit: $?"
           fi
           exit 0
