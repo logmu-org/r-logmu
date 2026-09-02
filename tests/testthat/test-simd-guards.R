@@ -56,7 +56,22 @@ simd_guard_features <- function(text, table) {
   ))))
 }
 
-read_source <- function(path) readLines(test_path("..", "..", path), warn = FALSE)
+# THIS CHECK NEEDS THE SOURCE TREE, AND UNDER `R CMD check` THERE ISN'T ONE.
+# Tests there run against the INSTALLED package, which has no `src/` and no
+# `configure` -- so every one of these skips rather than failing on a missing
+# file, which is what it did on first landing.
+#
+# That is not a hole. The mistake being guarded against is made while editing
+# the build files, and `devtools::test()` is what an editor runs. It also runs
+# in any check performed from a source directory.
+read_source <- function(path) {
+  full <- test_path("..", "..", path)
+  skip_if_not(
+    file.exists(full),
+    paste0("needs the package sources; `", path, "` is not in an installed package")
+  )
+  readLines(full, warn = FALSE)
+}
 
 test_that("every feature the AVX2 kernel is built with is also guarded", {
 
