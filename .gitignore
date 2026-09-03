@@ -22,6 +22,12 @@ _TODO.md
 # testthat writes the broken copies here; they are never part of the package.
 tests/testthat/_problems/
 
+# The other half of that debris, and it is a file rather than a directory, which
+# is why the rule above never caught it. testthat writes it when a run fails and
+# deletes it when one passes, so a copy was committed by accident and then
+# vanished the next time the suite was green.
+tests/testthat/testthat-problems.rds
+
 # Benchmark output. The harness in `bench/` is tracked; what it measures is
 # machine-specific and regenerated on demand, so the numbers are not.
 bench/*.csv
