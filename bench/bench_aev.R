@@ -61,7 +61,22 @@ package_root <- local({
   stop("run this from the package root or from bench/", call. = FALSE)
 })
 
-suppressMessages(devtools::load_all(package_root, quiet = TRUE, export_all = TRUE))
+# THE INSTALLED PACKAGE, NOT `devtools::load_all()`, AND THAT IS NOT A
+# PREFERENCE. `load_all()` and `pkgbuild::compile_dll()` both compile with
+# `-UNDEBUG -Wall -pedantic -g -O0`; `debug = FALSE` only drops the `-g`,
+# because pkgbuild REPLACES R's own CXX20FLAGS rather than adding to them and so
+# never passes an `-O` flag at all. Only `R CMD INSTALL` builds the package the
+# way R's `Makeconf` says, at `-O2 -DNDEBUG`, which is what CRAN ships and what
+# a user runs.
+#
+# So install before benchmarking, from the package root:
+#
+#   "/c/Program Files/R/R-4.6.1/bin/R.exe" CMD INSTALL --no-multiarch --no-docs .
+#
+# and remember that anything going through devtools -- the RStudio Test button
+# included -- leaves `-O0` objects behind, so `rm -f src/*.o src/vec_ops/*.o`
+# first if one has run since.
+library(logmu)
 
 args <- commandArgs(trailingOnly = TRUE)
 records <- if (length(args) >= 1) as.integer(args[[1]]) else 100000L
@@ -76,6 +91,19 @@ requested_tier <- Sys.getenv("LOGMU_TIER", unset = "")
 if (nzchar(requested_tier) && !identical(requested_tier, vec_active_tier())) {
   stop(sprintf("asked for the `%s` tier and got `%s` -- this CPU cannot offer it",
                requested_tier, vec_active_tier()), call. = FALSE)
+}
+
+# THE WITNESS FOR THE BUILD, and it stops the run rather than warning about it.
+# An unoptimised binary does not read slightly pessimistic; it inverts the
+# conclusion. The veil `exp` kernel measured THIRTY TIMES SLOWER than the scalar
+# loop it replaces when the package came from `load_all()`, and about twice as
+# FAST when the same source was installed by `R CMD INSTALL`. A warning would
+# have been scrolled past.
+if (!logmu:::cpp_build_optimised() || !logmu:::cpp_build_asserts_disabled()) {
+  stop(sprintf(
+    "the installed logmu was not built for measurement (optimised: %s, asserts disabled: %s) -- see the note at the top of this file",
+    logmu:::cpp_build_optimised(), logmu:::cpp_build_asserts_disabled()),
+    call. = FALSE)
 }
 
 clicks_per_year <- 534360L
@@ -206,7 +234,13 @@ cat("logmu A/E benchmark\n")
 cat(sprintf("tier            : %s, %d lanes%s\n",
             vec_active_tier(), vec_active_lanes(),
             if (nzchar(requested_tier)) " (forced)" else ""))
-cat(sprintf("default threads : %d\n", cpp_veil_default_threads()))
+cat(sprintf("default threads : %d\n", logmu:::cpp_veil_default_threads()))
+# THE BINARY, NOT THE SOURCE. An install can be older than the working tree and
+# nothing else here would notice, so say which file was measured and when it was
+# built.
+cat(sprintf("binary          : built %s\n",
+            format(file.info(getLoadedDLLs()[["logmu"]][["path"]])$mtime,
+                   "%Y-%m-%d %H:%M:%S")))
 cat(sprintf("records         : %d\n", records))
 cat(sprintf("reps            : %d\n\n", reps))
 
@@ -300,7 +334,7 @@ for (exp_years in c(1, 5)) {
 
   # THE THREAD SWEEP. Answers do not move with thread count -- the summation
   # order is fixed by the data -- so this is purely the pool's scaling.
-  for (threads in unique(c(1L, 2L, 4L, cpp_veil_default_threads()))) {
+  for (threads in unique(c(1L, 2L, 4L, logmu:::cpp_veil_default_threads()))) {
     local({
       th <- threads
       record(sprintf("table, amounts, %d thread(s)", th),

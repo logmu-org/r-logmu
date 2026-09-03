@@ -29,6 +29,52 @@
   return tier::active_lanes();
 }
 
+// WHICH BINARY AM I HOLDING? The witness for the benchmark harness, and it has
+// to be asked of the compiler because nothing on the R side can answer it.
+//
+// `devtools::load_all()` and `pkgbuild::compile_dll()` both build the package
+// with `-UNDEBUG -Wall -pedantic -g -O0`, and `debug = FALSE` only drops the
+// `-g`: pkgbuild REPLACES R's own CXX20FLAGS rather than adding to them, so it
+// never passes an `-O` flag at all and gcc falls back to `-O0`. Only
+// `R CMD INSTALL`, which uses R's `Makeconf`, compiles at `-O2 -DNDEBUG`.
+//
+// AN INTERPRETER OF LIBM CALLS BARELY NOTICES THE DIFFERENCE, and that is what
+// makes this dangerous rather than merely annoying. `std::exp` is a call into
+// an already-optimised library whatever the caller was built with, so the
+// scalar veil engine measured about the same speed either way and the harness
+// looked trustworthy for as long as no kernel was wired in. Inlined SIMD
+// template code is the opposite case: built at `-O0` with `EVE_ASSERT` live,
+// the veil `exp` kernel measured THIRTY TIMES SLOWER than the scalar loop it
+// replaces. That reads as a catastrophic regression and is nothing of the sort.
+//
+// Every translation unit in the package is compiled with the same
+// `ALL_CXXFLAGS`, the AVX tiers differing only by their ISA flags, so what this
+// one reports holds for the engine and the kernels too.
+[[cpp11::register]] bool cpp_build_optimised()
+{
+#if defined(__OPTIMIZE__)
+  return true;
+#else
+  // GCC and Clang both define `__OPTIMIZE__` at `-O1` and above. A compiler
+  // that defines it under no circumstances would report every build as
+  // unoptimised, which is the safe direction to be wrong in: it stops a
+  // benchmark rather than blessing one.
+  return false;
+#endif
+}
+
+// Whether `assert` and `EVE_ASSERT` are compiled out. Separate from the
+// optimisation level because the two are set by different flags and the debug
+// build turns asserts back ON, which is most of why its kernels are so slow.
+[[cpp11::register]] bool cpp_build_asserts_disabled()
+{
+#if defined(NDEBUG)
+  return true;
+#else
+  return false;
+#endif
+}
+
 #define R_UNARY(NAME)                                          \
 R_xlen_t n = x.size();                                         \
 cpp11::writable::doubles result(n);                            \

@@ -56,6 +56,20 @@ extern "C" SEXP _logmu_cpp_vec_active_lanes() {
   END_CPP11
 }
 // vec_ops_for_R.cpp
+bool cpp_build_optimised();
+extern "C" SEXP _logmu_cpp_build_optimised() {
+  BEGIN_CPP11
+    return cpp11::as_sexp(cpp_build_optimised());
+  END_CPP11
+}
+// vec_ops_for_R.cpp
+bool cpp_build_asserts_disabled();
+extern "C" SEXP _logmu_cpp_build_asserts_disabled() {
+  BEGIN_CPP11
+    return cpp11::as_sexp(cpp_build_asserts_disabled());
+  END_CPP11
+}
+// vec_ops_for_R.cpp
 cpp11::doubles cpp_vec_neg(cpp11::doubles x);
 extern "C" SEXP _logmu_cpp_vec_neg(SEXP x) {
   BEGIN_CPP11
@@ -261,42 +275,44 @@ extern "C" SEXP _logmu_cpp_veil_intervals(SEXP node, SEXP columns) {
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
-    {"_logmu_cpp_all_finite",           (DL_FUNC) &_logmu_cpp_all_finite,           1},
-    {"_logmu_cpp_deviance_residual",    (DL_FUNC) &_logmu_cpp_deviance_residual,    3},
-    {"_logmu_cpp_matrix_q_to_log_mu",   (DL_FUNC) &_logmu_cpp_matrix_q_to_log_mu,   1},
-    {"_logmu_cpp_slow_lookup_log_mu",   (DL_FUNC) &_logmu_cpp_slow_lookup_log_mu,   5},
-    {"_logmu_cpp_validate_aev",         (DL_FUNC) &_logmu_cpp_validate_aev,         3},
-    {"_logmu_cpp_vec_active_lanes",     (DL_FUNC) &_logmu_cpp_vec_active_lanes,     0},
-    {"_logmu_cpp_vec_active_tier",      (DL_FUNC) &_logmu_cpp_vec_active_tier,      0},
-    {"_logmu_cpp_vec_add",              (DL_FUNC) &_logmu_cpp_vec_add,              2},
-    {"_logmu_cpp_vec_clamp",            (DL_FUNC) &_logmu_cpp_vec_clamp,            3},
-    {"_logmu_cpp_vec_div",              (DL_FUNC) &_logmu_cpp_vec_div,              2},
-    {"_logmu_cpp_vec_exp",              (DL_FUNC) &_logmu_cpp_vec_exp,              1},
-    {"_logmu_cpp_vec_expm1",            (DL_FUNC) &_logmu_cpp_vec_expm1,            1},
-    {"_logmu_cpp_vec_log",              (DL_FUNC) &_logmu_cpp_vec_log,              1},
-    {"_logmu_cpp_vec_log1p",            (DL_FUNC) &_logmu_cpp_vec_log1p,            1},
-    {"_logmu_cpp_vec_m_from_q",         (DL_FUNC) &_logmu_cpp_vec_m_from_q,         1},
-    {"_logmu_cpp_vec_max",              (DL_FUNC) &_logmu_cpp_vec_max,              2},
-    {"_logmu_cpp_vec_min",              (DL_FUNC) &_logmu_cpp_vec_min,              2},
-    {"_logmu_cpp_vec_mul",              (DL_FUNC) &_logmu_cpp_vec_mul,              2},
-    {"_logmu_cpp_vec_neg",              (DL_FUNC) &_logmu_cpp_vec_neg,              1},
-    {"_logmu_cpp_vec_pow",              (DL_FUNC) &_logmu_cpp_vec_pow,              2},
-    {"_logmu_cpp_vec_sub",              (DL_FUNC) &_logmu_cpp_vec_sub,              2},
-    {"_logmu_cpp_veil_aev",             (DL_FUNC) &_logmu_cpp_veil_aev,             7},
-    {"_logmu_cpp_veil_default_threads", (DL_FUNC) &_logmu_cpp_veil_default_threads, 0},
-    {"_logmu_cpp_veil_eval",            (DL_FUNC) &_logmu_cpp_veil_eval,            2},
-    {"_logmu_cpp_veil_eval_multi",      (DL_FUNC) &_logmu_cpp_veil_eval_multi,      2},
-    {"_logmu_cpp_veil_fold",            (DL_FUNC) &_logmu_cpp_veil_fold,            2},
-    {"_logmu_cpp_veil_ingest_ast",      (DL_FUNC) &_logmu_cpp_veil_ingest_ast,      2},
-    {"_logmu_cpp_veil_integrate",       (DL_FUNC) &_logmu_cpp_veil_integrate,       4},
-    {"_logmu_cpp_veil_intervals",       (DL_FUNC) &_logmu_cpp_veil_intervals,       2},
-    {"_logmu_cpp_veil_prepare",         (DL_FUNC) &_logmu_cpp_veil_prepare,         2},
-    {"_logmu_cpp_veil_record_chunks",   (DL_FUNC) &_logmu_cpp_veil_record_chunks,   1},
-    {"_logmu_cpp_veil_run",             (DL_FUNC) &_logmu_cpp_veil_run,             5},
-    {"_logmu_cpp_veil_scan",            (DL_FUNC) &_logmu_cpp_veil_scan,            1},
-    {"_logmu_cpp_veil_time_scales",     (DL_FUNC) &_logmu_cpp_veil_time_scales,     0},
-    {"_logmu_cpp_veil_to_clicks",       (DL_FUNC) &_logmu_cpp_veil_to_clicks,       1},
-    {"_logmu_cpp_veil_to_years",        (DL_FUNC) &_logmu_cpp_veil_to_years,        1},
+    {"_logmu_cpp_all_finite",             (DL_FUNC) &_logmu_cpp_all_finite,             1},
+    {"_logmu_cpp_build_asserts_disabled", (DL_FUNC) &_logmu_cpp_build_asserts_disabled, 0},
+    {"_logmu_cpp_build_optimised",        (DL_FUNC) &_logmu_cpp_build_optimised,        0},
+    {"_logmu_cpp_deviance_residual",      (DL_FUNC) &_logmu_cpp_deviance_residual,      3},
+    {"_logmu_cpp_matrix_q_to_log_mu",     (DL_FUNC) &_logmu_cpp_matrix_q_to_log_mu,     1},
+    {"_logmu_cpp_slow_lookup_log_mu",     (DL_FUNC) &_logmu_cpp_slow_lookup_log_mu,     5},
+    {"_logmu_cpp_validate_aev",           (DL_FUNC) &_logmu_cpp_validate_aev,           3},
+    {"_logmu_cpp_vec_active_lanes",       (DL_FUNC) &_logmu_cpp_vec_active_lanes,       0},
+    {"_logmu_cpp_vec_active_tier",        (DL_FUNC) &_logmu_cpp_vec_active_tier,        0},
+    {"_logmu_cpp_vec_add",                (DL_FUNC) &_logmu_cpp_vec_add,                2},
+    {"_logmu_cpp_vec_clamp",              (DL_FUNC) &_logmu_cpp_vec_clamp,              3},
+    {"_logmu_cpp_vec_div",                (DL_FUNC) &_logmu_cpp_vec_div,                2},
+    {"_logmu_cpp_vec_exp",                (DL_FUNC) &_logmu_cpp_vec_exp,                1},
+    {"_logmu_cpp_vec_expm1",              (DL_FUNC) &_logmu_cpp_vec_expm1,              1},
+    {"_logmu_cpp_vec_log",                (DL_FUNC) &_logmu_cpp_vec_log,                1},
+    {"_logmu_cpp_vec_log1p",              (DL_FUNC) &_logmu_cpp_vec_log1p,              1},
+    {"_logmu_cpp_vec_m_from_q",           (DL_FUNC) &_logmu_cpp_vec_m_from_q,           1},
+    {"_logmu_cpp_vec_max",                (DL_FUNC) &_logmu_cpp_vec_max,                2},
+    {"_logmu_cpp_vec_min",                (DL_FUNC) &_logmu_cpp_vec_min,                2},
+    {"_logmu_cpp_vec_mul",                (DL_FUNC) &_logmu_cpp_vec_mul,                2},
+    {"_logmu_cpp_vec_neg",                (DL_FUNC) &_logmu_cpp_vec_neg,                1},
+    {"_logmu_cpp_vec_pow",                (DL_FUNC) &_logmu_cpp_vec_pow,                2},
+    {"_logmu_cpp_vec_sub",                (DL_FUNC) &_logmu_cpp_vec_sub,                2},
+    {"_logmu_cpp_veil_aev",               (DL_FUNC) &_logmu_cpp_veil_aev,               7},
+    {"_logmu_cpp_veil_default_threads",   (DL_FUNC) &_logmu_cpp_veil_default_threads,   0},
+    {"_logmu_cpp_veil_eval",              (DL_FUNC) &_logmu_cpp_veil_eval,              2},
+    {"_logmu_cpp_veil_eval_multi",        (DL_FUNC) &_logmu_cpp_veil_eval_multi,        2},
+    {"_logmu_cpp_veil_fold",              (DL_FUNC) &_logmu_cpp_veil_fold,              2},
+    {"_logmu_cpp_veil_ingest_ast",        (DL_FUNC) &_logmu_cpp_veil_ingest_ast,        2},
+    {"_logmu_cpp_veil_integrate",         (DL_FUNC) &_logmu_cpp_veil_integrate,         4},
+    {"_logmu_cpp_veil_intervals",         (DL_FUNC) &_logmu_cpp_veil_intervals,         2},
+    {"_logmu_cpp_veil_prepare",           (DL_FUNC) &_logmu_cpp_veil_prepare,           2},
+    {"_logmu_cpp_veil_record_chunks",     (DL_FUNC) &_logmu_cpp_veil_record_chunks,     1},
+    {"_logmu_cpp_veil_run",               (DL_FUNC) &_logmu_cpp_veil_run,               5},
+    {"_logmu_cpp_veil_scan",              (DL_FUNC) &_logmu_cpp_veil_scan,              1},
+    {"_logmu_cpp_veil_time_scales",       (DL_FUNC) &_logmu_cpp_veil_time_scales,       0},
+    {"_logmu_cpp_veil_to_clicks",         (DL_FUNC) &_logmu_cpp_veil_to_clicks,         1},
+    {"_logmu_cpp_veil_to_years",          (DL_FUNC) &_logmu_cpp_veil_to_years,          1},
     {NULL, NULL, 0}
 };
 }

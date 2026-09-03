@@ -16,6 +16,7 @@
 #include <variant>
 #include <vector>
 #include "datey.h" // yearsFromClicks, roundBankers, isValidDatey, isValidDurationy
+#include "vec_ops/vec_ops.hpp" // tier::exp_V_V, tier::log_V_V -- R-free, so the core stays R-free
 #include "veil/Block.hpp"
 #include "veil/ColumnView.hpp"
 #include "veil/Instruction.hpp"
@@ -577,6 +578,8 @@ private:
         const Lane b = instruction.argCount > 1 ? this->laneOf(instruction.args[1]) : Lane{};
         const Lane c = instruction.argCount > 2 ? this->laneOf(instruction.args[2]) : Lane{};
 
+        if (this->runKernel(instruction, a, first, slots, out)) { return; }
+
         const OpCategory category = opInfo(instruction.op).category;
         for (int slot = first; slot < slots; ++slot)
         {
@@ -601,6 +604,59 @@ private:
                 }
             }
             out[static_cast<size_t>(slot)] = value;
+        }
+    }
+
+    // BELOW THIS MANY SLOTS THE SCALAR LOOP WINS. A kernel call goes through the tier's function
+    // pointer, and under a handful of elements that indirection costs more than the lanes save.
+    // One threshold for every op rather than one per op: the crossing point is a property of the
+    // call, not of the arithmetic behind it, and a per-op table would be tuning noise pretending
+    // to be a decision.
+    static constexpr int MinimumKernelSlots = 4;
+
+    // THE SIMD KERNELS, for the ops where lanes pay for themselves. Answers true when it has
+    // written the result, false when the caller should fall through to the scalar loop.
+    //
+    // COVERAGE HERE IS A PERFORMANCE QUESTION, NEVER A CORRECTNESS ONE. The scalar loop handles
+    // every op and remains the definition; an op missing from the switch below is slow, not wrong.
+    // So ops are added one at a time as a profile asks for them, never generated wholesale.
+    //
+    // Only `exp` and `log` are routed today, and the profile is why. A five-year monthly A/E over
+    // an age-period table spends about 72% of its time on the exponential and the pointwise
+    // arithmetic around it, against 16% on the table lookup and 12% on the scalar spine. One op
+    // is therefore most of the calculation.
+    //
+    // THE ULP PROMISE IS WEAKER FOR THESE TWO THAN FOR ARITHMETIC, and that is not a concession
+    // made here. Neither `exp` nor `log` is correctly rounded by any mainstream library -- IEEE
+    // 754 recommends it for the transcendentals rather than requiring it -- so the kernel and the
+    // scalar fallback agree to within an ulp rather than exactly. Measured against this platform's
+    // `std::exp`, about one value in ten differs in the last place. Two further differences are
+    // real and confined to the extremes of the range: the kernel returns an infinity from about
+    // 709.44 upwards where `std::exp` still has finite room to 709.78, and it returns zero below
+    // about -708.4 where `std::exp` continues into the subnormals. A log-mortality reaching either
+    // band describes a hazard of 10^308 or 10^-308 a year, so neither is attainable from data.
+    //
+    // A SCALAR ARGUMENT IS LEFT TO THE LOOP. `Op::Broadcast` is what puts a per-individual value
+    // into a buffer, so a scalar lane arriving here means the whole result is one repeated value,
+    // and a kernel over it would evaluate the same exponential once per slot.
+    //
+    // ALIASING IS NOT A CONCERN. The allocator never gives an instruction's result the buffer of
+    // one of its own arguments, so the two ranges are distinct; and were they ever the same, these
+    // are element-wise unary kernels, for which writing over the input in place is well defined.
+    bool runKernel(const Instruction& instruction, const Lane& a, int first, int slots, std::vector<double>& out) const
+    {
+        const int kernelSlots = slots - first;
+        if (a.values == nullptr || kernelSlots < MinimumKernelSlots) { return false; }
+
+        const tier::vec_size count = static_cast<tier::vec_size>(kernelSlots);
+        const double* const from = a.values + first;
+        double* const to = out.data() + first;
+
+        switch (instruction.op)
+        {
+            case Op::Exp: tier::exp_V_V(count, from, to); return true;
+            case Op::Log: tier::log_V_V(count, from, to); return true;
+            default: return false;
         }
     }
 

@@ -28,6 +28,14 @@ cpp_vec_active_lanes <- function() {
   .Call(`_logmu_cpp_vec_active_lanes`)
 }
 
+cpp_build_optimised <- function() {
+  .Call(`_logmu_cpp_build_optimised`)
+}
+
+cpp_build_asserts_disabled <- function() {
+  .Call(`_logmu_cpp_build_asserts_disabled`)
+}
+
 cpp_vec_neg <- function(x) {
   .Call(`_logmu_cpp_vec_neg`, x)
 }
