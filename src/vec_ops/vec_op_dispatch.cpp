@@ -6,6 +6,7 @@
 
 #include "vec_ops.hpp"
 #include <cstddef>
+#include <cstdlib> // std::getenv, for the LOGMU_TIER ceiling
 #include <cstring>
 
 namespace tier
@@ -54,6 +55,40 @@ struct tier_table
   , &NS::clamp_VSS_V \
 }
 
+#if IS_X86_TARGET && (defined(__GNUC__) || defined(__clang__))
+
+// THE HIGHEST TIER THIS PROCESS MAY USE, as a rank: 0 baseline, 1 avx2,
+// 2 avx512. Read from `LOGMU_TIER`, which takes one of those three names.
+//
+// WHY IT EXISTS. The Windows stack-alignment crash of September 2026 hid for
+// four days behind tier selection: the fault was in the avx2 kernel and this
+// CPU picks avx512, so nothing here reproduced it until the tier was forced by
+// editing this file by hand. It is also the only way to compare tiers in a
+// benchmark. Reading it from the environment means the next person does not
+// have to patch the source.
+//
+// IT CAN ONLY EVER GO DOWN, and that is not negotiable. The feature checks
+// below stay in front of every table and this only removes candidates from
+// them. Forcing a tier UP would put an instruction the silicon does not
+// implement into the stream, which kills the process outright -- SIGILL, no R
+// error, no test output, just a dead session. That is the failure the checks
+// exist to prevent and an override must not reintroduce it.
+//
+// AN UNRECOGNISED VALUE RESTRICTS NOTHING. Nothing here can report an error
+// from static initialisation, so `active_tier()` is the witness: ask for a
+// tier, then read back which one you got. The benchmark harness asserts on
+// exactly that.
+int tier_ceiling()
+{
+  const char* const request = std::getenv("LOGMU_TIER");
+  if (request == nullptr) { return 2; }
+  if (std::strcmp(request, "baseline") == 0) { return 0; }
+  if (std::strcmp(request, "avx2") == 0) { return 1; }
+  return 2;
+}
+
+#endif
+
 const tier_table& select_tier()
 {
   static const tier_table baseline_tbl = LOGMU_TIER_TABLE(baseline);
@@ -78,13 +113,22 @@ const tier_table& select_tier()
   //
   // The guard and the flags must be changed together. If a tier gains a flag,
   // it gains a check here.
-  if (__builtin_cpu_supports("avx512f")
+  //
+  // THE CEILING IS AN ADDITIONAL CONDITION, never a substitute for one. Each
+  // tier still has to pass every feature check it had before; asking for a
+  // tier the CPU lacks leaves it unselected and falls through, exactly as if
+  // nothing had been asked for.
+  const int ceiling = tier_ceiling();
+
+  if (ceiling >= 2
+      && __builtin_cpu_supports("avx512f")
       && __builtin_cpu_supports("avx512cd")
       && __builtin_cpu_supports("avx512bw")
       && __builtin_cpu_supports("avx512dq")
       && __builtin_cpu_supports("avx512vl")) return avx512_tbl;
 
-  if (__builtin_cpu_supports("avx2")
+  if (ceiling >= 1
+      && __builtin_cpu_supports("avx2")
       && __builtin_cpu_supports("fma")) return avx2_tbl;
 #endif
   return baseline_tbl;

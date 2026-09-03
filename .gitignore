@@ -21,3 +21,7 @@ _TODO.md
 # Debris from deliberately-failed test runs (the disable-and-recheck habit).
 # testthat writes the broken copies here; they are never part of the package.
 tests/testthat/_problems/
+
+# Benchmark output. The harness in `bench/` is tracked; what it measures is
+# machine-specific and regenerated on demand, so the numbers are not.
+bench/*.csv

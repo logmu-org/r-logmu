@@ -41,6 +41,23 @@
   multiversioning" approach to portable SIMD code, and does not affect the
   portability or safety of the resulting binary.
 
+  The same two translation units are also built with the assembler option
+  `-Wa,-muse-unaligned-vector-move`. This works around a long-standing GCC
+  bug (PR 49001 / PR 54412) in which the compiler assumes 32-byte stack
+  alignment on Windows, where the ABI guarantees only 16. GCC emitted an
+  aligned 256-bit store (`vmovapd`) to a stack slot in the AVX2 kernel, and
+  the package crashed on roughly half of all runs on Windows until the
+  option was added. It instructs the assembler to encode vector moves in
+  their unaligned form, is accepted by the GNU assembler on all platforms
+  where these kernels are built, and has no effect on the numerical result.
+
+  The tier selected at load time may additionally be capped by the
+  `LOGMU_TIER` environment variable, which is documented in
+  `?vec_active_tier`. It can only ever lower the tier that CPU detection
+  would otherwise choose, never raise it, so it cannot cause an unsupported
+  instruction to be executed. It exists for benchmarking and for
+  reproducing tier-specific faults such as the one described above.
+
 ## Downstream dependencies
 
 There are currently no downstream dependencies for this package.

@@ -16,5 +16,31 @@ A scalar \code{integer} representing the number of active SIMD lanes.
 A scalar \code{character} describing the active SIMD tier.
 }
 \description{
-SIMD active lanes and tier
+\code{vec_active_tier()} names the SIMD kernel tier the package resolved when its
+shared library was loaded, and \code{vec_active_lanes()} gives the number of
+\code{double} lanes that tier works on.
+
+The tier is chosen from the instruction sets the CPU reports: \code{"avx512"}
+(8 lanes), \code{"avx2"} (4 lanes), or \code{"baseline"} (2 lanes) where neither of
+those is available.
 }
+\section{Forcing a lower tier}{
+
+
+Setting the environment variable \code{LOGMU_TIER} to \code{"baseline"}, \code{"avx2"} or
+\code{"avx512"} before the package is loaded places a ceiling on the tier that may
+be selected. It is there for comparing tiers in a benchmark, and for
+reproducing a fault that only one of them shows.
+
+The ceiling can only ever lower the tier, never raise it. A CPU that does not
+support the tier asked for still falls back to the best one it does support,
+because the processor feature checks apply exactly as they otherwise would.
+
+An unrecognised value places no ceiling at all, and nothing is reported, so
+call \code{vec_active_tier()} to confirm which tier is in use rather than assuming
+the request was honoured.
+
+The variable is read once, when the shared library is loaded. Changing it
+later has no effect for the rest of the session.
+}
+
