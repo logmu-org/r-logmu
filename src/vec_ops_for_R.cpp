@@ -82,46 +82,44 @@ return result;
 [[cpp11::register]] cpp11::doubles cpp_vec_mul(cpp11::doubles x, cpp11::doubles y){ R_BINARY(mul) }
 [[cpp11::register]] cpp11::doubles cpp_vec_div(cpp11::doubles x, cpp11::doubles y){ R_BINARY(div) }
 // POW IS IMPLEMENTED HERE AND NOWHERE ELSE, and does not go through the SIMD
-// tier system at all. Three reasons, all found the hard way over 2026-08-31
-// and 2026-09-01.
+// tier dispatch table. It has ONE vectorised shape -- a scalar base over a
+// vector of exponents -- which calls the `mul` and `exp` kernels directly.
 //
-// EVE'S POW CRASHED. On the AVX2 tier it segfaulted on a GitHub Windows
-// runner -- inside `pow_VV_V`, confirmed by a gdb backtrace after exit code
-// 139 -- and could not be reproduced on any machine here, on either tier, with
-// or without gctorture.
-//
-// EVE'S POW WAS ALSO WRONG. Edge-case tests written before any change failed
-// SIXTEEN IEEE cases on the WORKING AVX-512 tier: `pow(NaN, Inf)` gave Inf,
-// `pow(-2, 0.5)` was not NaN. The old tests covered bases in (0, 1) and
-// exponents in (-1, 1), so none of it had ever been exercised.
-//
-// AND POW HAS NO BUSINESS IN THE TIER SYSTEM. Only one of its three shapes is
-// vectorised at all, so a dispatch table entry bought nothing. `std::pow` is
-// correctly rounded and gets the whole IEEE special-case ladder right for
+// EVE'S POW WAS WRONG, AND THAT IS WHY IT IS GONE. Edge-case tests written
+// before any change failed SIXTEEN IEEE cases on the AVX-512 tier:
+// `pow(NaN, Inf)` gave Inf, `pow(-2, 0.5)` was not NaN. The old tests covered
+// bases in (0, 1) and exponents in (-1, 1), so none of it had ever run.
+// `std::pow` is correctly rounded and gets the whole IEEE ladder right for
 // free -- `x^0` is 1 for every x including NaN, `1^y` is 1 for every y
 // including Inf, a negative base keeps its sign for integer exponents. The
-// engine already evaluates `Op::Pow` with `std::pow`, so the two now agree.
+// engine already evaluates `Op::Pow` with `std::pow`, so the two agree.
 //
-// NOTHING HERE IS VECTORISED, AND THAT IS DELIBERATE. A scalar-base fast path
-// computing exp(y log x) through the `mul` and `exp` kernels was written and
-// then removed on 2026-09-01, because it was the last thing standing when the
-// Windows crash was finally cornered: markers put the fault at `base 1.02` in
-// exactly that path.
+// EVE'S POW DID NOT CRASH. THAT WAS A MISATTRIBUTION, corrected 2026-09-02.
+// The Windows segfault was `vmovapd %ymm3,(%rcx)` inside
+// `tier::avx2::exp_V_V`: an aligned 256-bit store to a stack address, where
+// Windows guarantees only 16-byte alignment, so it faulted about half the
+// time. The gdb backtrace that appeared to name `pow_VV_V` was resolving to
+// the nearest EXPORT rather than the real function, which is what symbol
+// lookup inside a stripped DLL does. `SIMD_SAFE_STACK` in `Makevars.win`
+// fixes it, and `test-simd-stack-alignment.R` guards it.
 //
-// WHAT WAS NOVEL ABOUT IT was calling a vector kernel IN PLACE -- the same
-// buffer passed as both `const double* arg` and `double* result`. Nowhere else
-// in the package does that; every other call has distinct R vectors either
-// side. Whether that is the fault or merely where it surfaced was not worth
-// another round of seven-minute CI cycles to establish, for an operation the
-// engine does not use.
+// SO THE SCALAR-BASE FAST PATH IS BACK, AND IT WRITES IN PLACE -- the same
+// buffer passed as both `const double* arg` and `double* result`. That is
+// sound, and was never shown to be otherwise. No `restrict` appears anywhere
+// in `src/vec_ops/`, so the compiler is told nothing about non-overlap; both
+// parameters are `double*`, so no strict-aliasing question arises; and every
+// lane loads and stores the same index. It was removed on 2026-09-01 purely on
+// the crash diagnosis above, which was wrong.
 //
-// `x == 1` still gets its own branch. It is not an optimisation: `log 1` is 0
-// and `Inf * 0` is NaN, so any exp(y log x) formulation returns NaN where
-// `pow(1, Inf)` must be 1. `std::pow` gets it right on its own, but the branch
-// documents the trap for anyone tempted to reintroduce the fast path.
+// THE GUARD IS x FINITE, POSITIVE AND NOT 1. Inside it every special exponent
+// falls out of exp(y log x) with no further cases. log 2 is positive, so
+// y = Inf gives exp(Inf) = Inf and y = -Inf gives exp(-Inf) = 0; log 0.5 is
+// negative and reverses both; y = 0 gives exp(0) = 1; NaN propagates. Outside
+// the guard -- a negative, zero, infinite or NaN base -- `std::pow` handles it.
 //
-// IF IT IS EVER WORTH VECTORISING AGAIN: measure first, and use a scratch
-// buffer rather than writing in place.
+// `x == 1` NEEDS ITS OWN BRANCH, and it is not an optimisation. log 1 is 0 and
+// Inf * 0 is NaN, so any exp(y log x) formulation returns NaN where
+// `pow(1, Inf)` must be 1.
 [[cpp11::register]] cpp11::doubles cpp_vec_pow(cpp11::doubles x, cpp11::doubles y)
 {
   R_xlen_t n_x = x.size();
@@ -156,6 +154,12 @@ return result;
     if (base == 1.0)
     {
       for (R_xlen_t i = 0; i < n; ++i) { p_result[i] = 1.0; }
+    }
+    else if (std::isfinite(base) && base > 0.0)
+    {
+      // y * log(base) into the result buffer, then exp over that same buffer.
+      tier::mul_VS_V(n, p_y, std::log(base), p_result);
+      tier::exp_V_V(n, p_result, p_result);
     }
     else
     {
