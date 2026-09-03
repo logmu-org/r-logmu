@@ -29,11 +29,18 @@
 # somebody looks. The alternative -- no check -- fails silently on a user's
 # machine, which is what happened.
 
-# `-mfoo` flags on the compile line for one kernel.
+# `-mfoo` ISA flags on the compile line for one kernel.
 simd_build_flags <- function(text, kernel) {
   line <- grep(kernel, text, value = TRUE, fixed = TRUE)
   line <- grep("-m", line, value = TRUE, fixed = TRUE)
   if (length(line) == 0L) return(character(0))
+
+  # STRIP ASSEMBLER PASS-THROUGHS FIRST. `-Wa,-muse-unaligned-vector-move`
+  # contains two substrings that look exactly like `-m` feature flags, and
+  # without this the extractor reports the CPU features "use" and "ove". That
+  # flag is an ABI workaround, not an instruction set -- see `Makevars.win`.
+  line <- gsub("-Wa,[^ ]*", "", line)
+
   sort(unique(sub("^-m", "", unlist(regmatches(line, gregexpr("-m[a-z0-9]+", line))))))
 }
 
@@ -109,6 +116,13 @@ test_that("the Unix build uses the same flags as the Windows one", {
   # `configure` writes the Unix rules and `Makevars.win` holds the Windows ones.
   # They are separate files that must agree, or a tier is guarded correctly on
   # one platform and not the other.
+  #
+  # WHAT MUST MATCH IS THE INSTRUCTION SET, NOT THE WHOLE COMMAND LINE. Windows
+  # additionally passes `-Wa,-muse-unaligned-vector-move`, which is an ABI
+  # workaround for a gcc/mingw stack-alignment bug and must NOT go to Unix:
+  # Linux gcc realigns correctly and clang on macOS rejects the option. So
+  # `simd_build_flags` deliberately ignores `-Wa,` pass-throughs, and this test
+  # compares the ISA flags either side of that.
   configure <- read_source("configure")
   windows <- read_source("src/Makevars.win")
 
@@ -147,5 +161,21 @@ test_that("the tier the guards select is the tier that runs", {
   expect_identical(
     lanes,
     switch(tier, baseline = 2L, avx2 = 4L, avx512 = 8L)
+  )
+})
+
+test_that("an assembler pass-through is not mistaken for an ISA flag", {
+
+  # THE MAKEVARS PUTS THE FLAG IN `$(SIMD_SAFE_STACK)`, so the literal never
+  # reaches the compile line the tests above read. That is tidy, and it means
+  # nothing else in this file would notice if the stripping broke. This is the
+  # only witness -- it feeds the extractor the flag written out in full.
+  synthetic <- paste(
+    "vec_ops/vec_kernel_avx2.o: $(CXX) $(ALL_CXXFLAGS)",
+    "-Wa,-muse-unaligned-vector-move -mavx2 -mfma -c vec_ops/vec_kernel_avx2.cpp"
+  )
+  expect_identical(
+    simd_build_flags(synthetic, "vec_kernel_avx2.cpp"),
+    c("avx2", "fma")
   )
 })

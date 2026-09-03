@@ -103,6 +103,43 @@ jobs:
           # the check output rather than trusting the tick.
           error-on: '"error"'
 
+      # THE ONE PLACE THIS CHECK CANNOT SKIP.
+      #
+      # `tests/testthat/test-simd-stack-alignment.R` runs the same scan, but it
+      # skips politely when `objdump` is missing or the library is not loaded,
+      # and a check that skips everywhere is decoration. This step runs on the
+      # platform where the fault exists, with a toolchain guaranteed to have the
+      # tool, and it fails the build.
+      #
+      # It guards `SIMD_SAFE_STACK` in `src/Makevars.win`, which works around a
+      # gcc/mingw bug that is fifteen years old and still open. If Rtools ever
+      # changes binutils, or a kernel is added without the flag, this is what
+      # says so. Otherwise the only symptom is an intermittent segfault on a
+      # user's machine, which is how the original cost two days.
+      - name: No aligned wide memory accesses in the Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cat > scan-alignment.R <<'RSCRIPT'
+          found <- list.files(".", recursive = TRUE, full.names = TRUE)
+          dll <- found[basename(found) == "logmu.dll"]
+          if (length(dll) == 0L) stop("no logmu.dll found under the workspace")
+          objdump <- Sys.which("objdump")
+          if (objdump == "") stop("objdump is not on the path")
+          dis <- system2(objdump, c("-d", shQuote(dll[1L])), stdout = TRUE, stderr = FALSE)
+          if (length(dis) < 100L) stop("objdump produced no disassembly")
+          wide <- grep("vmovdqa|vmovapd|vmovaps", dis, value = TRUE)
+          wide <- grep("ymm|zmm", wide, value = TRUE)
+          bad <- grep("(", wide, value = TRUE, fixed = TRUE)
+          message("scanned: ", dll[1L], " -- ", length(dis), " lines")
+          if (length(bad)) {
+            writeLines(trimws(utils::head(bad, 20L)))
+            stop(sprintf("%d aligned wide memory access(es); see src/Makevars.win", length(bad)))
+          }
+          message("clean: no aligned wide memory accesses")
+          RSCRIPT
+          Rscript scan-alignment.R
+
 
   check-extended:
     if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"

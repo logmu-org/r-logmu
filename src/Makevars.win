@@ -15,6 +15,50 @@ PKG_CPPFLAGS = -I. -DLOGMU_BUILD_SIMD_TIERS=1
 # puts those headers in the build.
 OBJECTS = cpp11.o R.o aev.o veil.o veil_for_R.o vec_ops_for_R.o vec_ops/vec_op_dispatch.o vec_ops/vec_kernel_baseline.o vec_ops/vec_kernel_avx2.o vec_ops/vec_kernel_avx512.o
 
+# THE ASSEMBLER MUST NOT EMIT 32-BYTE-ALIGNED STACK ACCESSES ON WINDOWS.
+#
+# GCC on mingw-w64 compiles the AVX2 kernel into code that reads and writes
+# 256-bit stack slots with `vmovdqa`, which FAULTS unless the address is
+# 32-byte aligned. The Windows x64 ABI guarantees only 16, and gcc refuses to
+# promise more:
+#
+#     $ g++ -mpreferred-stack-boundary=5 -c x.cpp
+#     cc1plus.exe: error: '-mpreferred-stack-boundary=5' is not between 3 and 4
+#
+# So such a slot is correctly aligned only when the call chain happens to leave
+# `rsp` on a 32-byte boundary -- roughly half of all entries. That is the cause
+# of the intermittent Windows segfault of 2026-08-31 / 09-01. The fault
+# WANDERED between `pow`, `exp` and a scalar-base path because all three route
+# through `eve::ldexp`, which holds two of the four offending instructions.
+#
+# `-mstackrealign` does NOT fix it and is already on: it is in R's own Windows
+# CXX20FLAGS, and it realigns to 16.
+#
+# This is GCC PR 49001 (May 2011) and PR 54412, both still unfixed. The
+# upstream answer was a BINUTILS option that rewrites every aligned vector move
+# as the unaligned encoding. On AVX hardware the two run at the same speed when
+# the address is aligned, and ours are, so it costs nothing measurable: expm1
+# over 100 x 2^20 elements timed 0.281-0.288 s aligned against 0.275-0.290 s
+# unaligned, which is inside the noise.
+#
+# MEASURED ON THIS KERNEL: aligned 32-byte stack accesses 4 -> 0, aligned ymm
+# moves of any kind 36 -> 0, and a probe walking the entry stack offset went
+# from 7 crashes in 16 to none.
+#
+# APPLIED TO THE AVX-512 KERNEL TOO. That one is clean today only because gcc
+# happened to choose unaligned encodings, which is luck rather than a promise.
+#
+# WINDOWS ONLY. `configure` must NOT pass this on Unix: Linux gcc realigns the
+# stack correctly under the SysV ABI, and clang's integrated assembler on macOS
+# rejects the option outright. This is why the flags in this file and in
+# `configure` are allowed to differ -- see `tests/testthat/test-simd-guards.R`,
+# which holds the ISA flags to a match while permitting this one to differ.
+#
+# `tests/testthat/test-simd-stack-alignment.R` scans the SHIPPED BINARY for the
+# instruction this removes, so a toolchain change that brings it back is caught
+# at build time rather than by a user.
+SIMD_SAFE_STACK = -Wa,-muse-unaligned-vector-move
+
 all: $(SHLIB)
 
 # Subfolder objects need explicit compile rules; the built-in rule only covers
@@ -26,7 +70,7 @@ vec_ops/vec_op_dispatch.o: vec_ops/vec_op_dispatch.cpp
 	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -c vec_ops/vec_op_dispatch.cpp -o vec_ops/vec_op_dispatch.o
 
 vec_ops/vec_kernel_avx2.o: vec_ops/vec_kernel_avx2.cpp
-	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx2 -mfma -c vec_ops/vec_kernel_avx2.cpp -o vec_ops/vec_kernel_avx2.o
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) $(SIMD_SAFE_STACK) -mavx2 -mfma -c vec_ops/vec_kernel_avx2.cpp -o vec_ops/vec_kernel_avx2.o
 
 vec_ops/vec_kernel_avx512.o: vec_ops/vec_kernel_avx512.cpp
-	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -c vec_ops/vec_kernel_avx512.cpp -o vec_ops/vec_kernel_avx512.o
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) $(SIMD_SAFE_STACK) -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -c vec_ops/vec_kernel_avx512.cpp -o vec_ops/vec_kernel_avx512.o
