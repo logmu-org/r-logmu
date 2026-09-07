@@ -16,11 +16,13 @@
 
 // The data structures.
 #include "veil/Block.hpp"
+#include "veil/Cholesky.hpp"
 #include "veil/ColumnScan.hpp"
 #include "veil/ColumnSet.hpp"
 #include "veil/ColumnView.hpp"
 #include "veil/DateyInterval.hpp"
 #include "veil/Engine.hpp"
+#include "veil/FitRecipe.hpp"
 #include "veil/Instruction.hpp"
 #include "veil/Interpreter.hpp"
 #include "veil/MortalityTable.hpp"

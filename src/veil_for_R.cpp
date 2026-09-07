@@ -29,10 +29,12 @@
 #include "datey.h" // yearsFromClicks, clicksFromYears
 #include "veil/AevRecipe.hpp"
 #include "veil/Block.hpp"
+#include "veil/Cholesky.hpp"
 #include "veil/ColumnScan.hpp"
 #include "veil/ColumnSet.hpp"
 #include "veil/ColumnView.hpp"
 #include "veil/Engine.hpp"
+#include "veil/FitRecipe.hpp"
 #include "veil/Instruction.hpp"
 #include "veil/Interpreter.hpp"
 #include "veil/Node.hpp"
@@ -1856,6 +1858,137 @@ inline double varianceFromSecondMoment(double secondMoment, double overdispersio
     return secondMoment * overdispersion;
 }
 
+struct FitBuild final
+{
+    veil::Block block;
+    size_t shared = 0;
+    BlockPipelineResult layout;
+    size_t terms = 0;
+};
+
+// Compiles ONE fit specification into a block ready to run: a log-mu expression that already carries
+// the current beta, the model terms, and the same optional weight, second weighting factor and
+// include an A/E takes.
+//
+// DELIBERATELY A SEPARATE FUNCTION FROM `buildAev` RATHER THAN A FLAG ON IT. The two share every
+// dataset-wide argument and the whole pass pipeline, and differ in exactly one thing -- which recipe
+// assembles the roots. Threading a `kind` through `buildAev` would put a branch in the middle of a
+// function whose value is that it is the ONE way a block gets built; two callers of the same
+// pipeline is the shape that keeps that true.
+FitBuild buildFit(
+    cpp11::list mortality,
+    cpp11::list terms,
+    cpp11::doubles beta,
+    SEXP weight,
+    SEXP valSimilarity,
+    SEXP valDistance,
+    SEXP include,
+    const cpp11::strings& columnNames,
+    const std::vector<veil::TypeFull>& columnTypes,
+    const std::vector<std::optional<veil::TypeWithConstraints>>& constraints,
+    const veil::StringMapping& mapping,
+    const veil::ExposureColumns& exposure)
+{
+    veil::Tree tree;
+    veil::ObjStore objs;
+
+    // The BASE mortality. The recipe adds `sum_j beta_j X_j` to it, so this must NOT already carry
+    // beta -- that was the earlier interface and it let the model being differentiated drift away
+    // from the model being evaluated.
+    const veil::NodeId logMu = ingest(tree, objs, mortality, columnNames);
+
+    // Ingested in the order given, and that order is the model's: it fixes which coefficient is
+    // which, so the caller's term list and the returned score are the same sequence throughout.
+    std::vector<veil::NodeId> termNodes;
+    termNodes.reserve(static_cast<size_t>(terms.size()));
+    for (R_xlen_t i = 0; i < terms.size(); ++i)
+    {
+        termNodes.push_back(
+            ingest(tree, objs, cpp11::as_cpp<cpp11::list>(VECTOR_ELT(SEXP(terms), i)), columnNames));
+    }
+
+    const veil::NodeId weightNode = weight == R_NilValue
+        ? tree.buildLitDouble(1.0)
+        : ingest(tree, objs, cpp11::as_cpp<cpp11::list>(weight), columnNames);
+
+    if (valSimilarity != R_NilValue && valDistance != R_NilValue)
+    {
+        cpp11::stop("Give either `val_similarity` or `val_distance`, not both.");
+    }
+
+    const SEXP secondFactor = valSimilarity != R_NilValue ? valSimilarity : valDistance;
+    const veil::SimilarityForm form = valSimilarity != R_NilValue
+        ? veil::SimilarityForm::Similarity
+        : veil::SimilarityForm::Distance;
+    const veil::NodeId similarityNode = secondFactor == R_NilValue
+        ? veil::invalidNodeId
+        : ingest(tree, objs, cpp11::as_cpp<cpp11::list>(secondFactor), columnNames);
+
+    // THE COEFFICIENTS ARE LITERALS HERE, and that is right for accumulating at a fixed beta and
+    // wrong for the iteration to come. Two literals of equal value are merged by the sharing pass,
+    // which keys a double literal by its bits -- and the fit's default start is zero for EVERY
+    // parameter, so all k of them would collapse onto one operand. That is harmless while nothing
+    // sets them, since the arithmetic is the same either way, and a wrong answer the moment the
+    // fitter tries to move one. The loop slice replaces these with a leaf the folding and sharing
+    // passes must leave alone.
+    if (beta.size() != terms.size())
+    {
+        cpp11::stop("`beta` must have one value for each model term.");
+    }
+
+    std::vector<veil::NodeId> coefficientNodes;
+    coefficientNodes.reserve(static_cast<size_t>(beta.size()));
+    for (R_xlen_t i = 0; i < beta.size(); ++i)
+    {
+        coefficientNodes.push_back(tree.buildLitDouble(beta[i]));
+    }
+
+    const veil::FitRoots roots = veil::buildFitRecipe(
+        tree, logMu, termNodes, coefficientNodes, weightNode, similarityNode, form);
+    for (const veil::NodeId root : veil::fitRootOrder(roots)) { tree.addRoot(root); }
+
+    std::optional<veil::ObjId> includeObj;
+    if (include != R_NilValue)
+    {
+        if (!Rf_inherits(include, "include")) { cpp11::stop("`include` must be an `include` object."); }
+        includeObj = readInclude(tree, objs, include, columnNames);
+    }
+
+    const PipelineResult result = runTreePipeline(tree, objs, columnTypes, constraints, mapping,
+                                                  exposureTimeInterval(exposure, constraints));
+
+    switch (veil::passCheckSimilarityRange(tree, result.intervals, similarityNode, form))
+    {
+        case veil::SimilarityViolation::Above:
+            if (form == veil::SimilarityForm::Distance)
+            {
+                cpp11::stop("`val_distance` cannot be negative, and this one always is.");
+            }
+            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always above 1.");
+            break;
+        case veil::SimilarityViolation::Below:
+            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always below 0.");
+            break;
+        case veil::SimilarityViolation::None:
+            break;
+    }
+
+    veil::Block block =
+        veil::passLowerToBlock(tree, objs, result.timeVarying, exposure, includeObj);
+    const BlockPipelineResult layout = runBlockPipeline(block);
+
+    const size_t count = termNodes.size();
+    const size_t expected = 2 + 2 * count + 2 * veil::packedTriangleSize(count);
+    if (block.outputs().size() != expected)
+    {
+        cpp11::stop("A fit with %d terms lowers to exactly %d outputs, not %d.",
+                    static_cast<int>(count), static_cast<int>(expected),
+                    static_cast<int>(block.outputs().size()));
+    }
+
+    return FitBuild{std::move(block), result.shared, layout, count};
+}
+
 [[cpp11::register]]
 cpp11::list cpp_veil_aev(
     cpp11::list mortality,
@@ -1944,6 +2077,124 @@ cpp11::list cpp_veil_aev(
         // THE ONLY OBSERVABLE THAT A THREAD COUNT WAS HONOURED. Nothing numeric can see threading --
         // that is the entire design -- so without this a test cannot tell four threads from a silent
         // fall back to one, and the bit-identity test would pass just as happily either way.
+        "threads_used"_nm = static_cast<int>(veil::resolveThreadCount(threadCount)),
+    });
+}
+
+// ONE NEWTON-RAPHSON ITERATION'S WORTH OF ACCUMULATION, at the beta already folded into `mortality`.
+//
+// NO LOOP AND NO SOLVE. This walks the data once and returns the six accumulated families the
+// iteration needs; the Cholesky, the step, the damping and the convergence test are later slices.
+// Keeping them apart means the accumulation can be checked against an analytic oracle on its own,
+// which is the stage where a wrong number is still easy to attribute.
+//
+// OMEGA IS NOT APPLIED, and `ew_xx` / `ew2_xx` are named as the raw moments they are:
+// `I = Omega^-1 * ew_xx` and `J = Omega^-1 * ew2_xx`. The scalar cancels in the penalty
+// `tr(J I^-1)` and appears exactly once in `Var(beta_hat)`, so applying it here would make it easy
+// to apply twice. Z is likewise absent -- neither scalar touches the Newton step.
+//
+// `terms` may be empty. That is not a degenerate case to be tolerated but the one worth testing:
+// with no parameters the block reduces to the log-likelihood's two roots, and `E` must then agree
+// EXACTLY with the E an A/E computes over the same data -- an oracle written by another recipe.
+//
+// `keep_contributions` returns the per-individual values as an `outputs x records` matrix. The
+// engine writes them record-major, which IS that matrix in column-major order, so nothing is
+// transposed. Diagnostic only: it costs one double per output per individual, and at twenty terms
+// that is 462 outputs a record, so a real fit leaves it off.
+[[cpp11::register]]
+cpp11::list cpp_veil_fit(
+    cpp11::list mortality,
+    cpp11::list terms,
+    cpp11::doubles beta,
+    SEXP weight,
+    SEXP val_similarity,
+    SEXP val_distance,
+    cpp11::list columns,
+    int time_scale,
+    SEXP include,
+    bool keep_contributions,
+    int threads)
+{
+    const cpp11::strings columnNames = columnNamesOf(columns);
+    std::vector<veil::TypeFull> columnTypes;
+    std::vector<std::optional<veil::TypeWithConstraints>> constraints;
+    veil::ColumnSet set;
+    const TextEncoding encoding = prepareColumns(columns, columnNames, set, columnTypes, constraints);
+
+    veil::ExposureColumns exposure;
+    exposure.start = exposureColumn(columnNames, columnTypes, "E2R_start", veil::Type::Datey);
+    exposure.end = exposureColumn(columnNames, columnTypes, "E2R_end", veil::Type::Datey);
+    exposure.died = exposureColumn(columnNames, columnTypes, "E2R_died", veil::Type::Bool);
+    exposure.deltaTClicks = veil::validateTimeScaleClicks(time_scale);
+
+    const FitBuild built = buildFit(mortality, terms, beta, weight, val_similarity, val_distance,
+                                    include, columnNames, columnTypes, constraints,
+                                    encoding.mapping, exposure);
+    const veil::Block& block = built.block;
+
+    const R_xlen_t records = columns.size() == 0 ? 0 : Rf_xlength(VECTOR_ELT(SEXP(columns), 0));
+    const std::vector<const veil::ColumnView*> views = viewsByColumnId(set, columnNames);
+
+    if (threads < 0) { cpp11::stop("`threads` cannot be negative."); }
+
+    const size_t threadCount = static_cast<size_t>(threads);
+    const veil::CalculationResult calculation = veil::runCalculation(
+        block, views, static_cast<size_t>(records), keep_contributions, threadCount,
+        userInterruptIsPending);
+
+    if (calculation.interrupted) { cpp11::stop("The veil calculation was interrupted."); }
+
+    // Unpacked in `fitRootOrder`'s order, which is the one place that order is written down.
+    const size_t count = built.terms;
+    const size_t triangle = veil::packedTriangleSize(count);
+    const auto slice = [&calculation](size_t from, size_t howMany)
+    {
+        cpp11::writable::doubles out(static_cast<R_xlen_t>(howMany));
+        for (size_t i = 0; i < howMany; ++i)
+        {
+            out[static_cast<R_xlen_t>(i)] = calculation.totals[from + i];
+        }
+        return out;
+    };
+
+    size_t at = 2;
+    const cpp11::writable::doubles scoreActual = slice(at, count);
+    at += count;
+    const cpp11::writable::doubles scoreExpected = slice(at, count);
+    at += count;
+    const cpp11::writable::doubles ewXX = slice(at, triangle);
+    at += triangle;
+    const cpp11::writable::doubles ew2XX = slice(at, triangle);
+
+    const size_t outputCount = block.outputs().size();
+    cpp11::writable::doubles contributions(
+        static_cast<R_xlen_t>(calculation.contributions.size()));
+    for (size_t i = 0; i < calculation.contributions.size(); ++i)
+    {
+        contributions[static_cast<R_xlen_t>(i)] = calculation.contributions[i];
+    }
+    if (!calculation.contributions.empty())
+    {
+        contributions.attr("dim") =
+            cpp11::writable::integers({static_cast<int>(outputCount), static_cast<int>(records)});
+    }
+
+    return cpp11::writable::list({
+        "A"_nm = calculation.totals[0],
+        "E"_nm = calculation.totals[1],
+        "score_actual"_nm = scoreActual,
+        "score_expected"_nm = scoreExpected,
+        "ew_xx"_nm = ewXX,
+        "ew2_xx"_nm = ew2XX,
+        "term_count"_nm = static_cast<int>(count),
+        "contributions"_nm = contributions,
+        "chunk_count"_nm = static_cast<int>(calculation.chunks),
+        "records_included"_nm = static_cast<int>(calculation.recordsIncluded),
+        "output_count"_nm = static_cast<int>(outputCount),
+        "instruction_count"_nm = static_cast<int>(block.body().size()),
+        "shared_nodes"_nm = static_cast<int>(built.shared),
+        "buffer_count"_nm = static_cast<int>(built.layout.buffers),
+        "slot_evaluations"_nm = static_cast<int>(calculation.slotEvaluations),
         "threads_used"_nm = static_cast<int>(veil::resolveThreadCount(threadCount)),
     });
 }
@@ -2146,4 +2397,95 @@ cpp11::list cpp_veil_intervals(cpp11::list node, cpp11::list columns)
         runTreePipeline(tree, objs, columnTypes, constraints, encoding.mapping);
 
     return dumpTree(tree, result.timeVarying, encoding.mapping, &result.intervals);
+}
+
+// THE DENSE LINEAR ALGEBRA ONE NEWTON STEP NEEDS, EXPOSED FOR TESTING AND NOTHING ELSE.
+//
+// veil/Cholesky.hpp is R-free and has no other way into the suite, so this is the same kind of
+// entry point as cpp_veil_fold and cpp_veil_scan: it exists so the core can be checked from R
+// rather than because anything in the package calls it. `fit()` will call the C++ directly.
+//
+// Everything comes back from one call because everything is derived from one factorisation, and
+// splitting it would mean factorising four times and then having to argue that the four agreed.
+//
+// `packed_upper` is a symmetric matrix as a packed upper triangle, ROW-MAJOR, the layout
+// FitRecipe.hpp defines and `ewXX` arrives in. `packed_upper_other` is a second one in the same
+// layout, standing in for J in the penalty tr(J I^-1). `right_hand_side` stands in for the score.
+//
+// `failed_parameter` IS ZERO-BASED, matching the C++ exactly rather than being shifted into R's
+// counting. This is a window onto the core, so a shifted index would be one more thing that could
+// be wrong in the window rather than in what it looks at. Callers that put it in front of a user
+// add the one.
+[[cpp11::register]]
+cpp11::list cpp_veil_cholesky(
+    cpp11::doubles packed_upper,
+    int terms,
+    cpp11::doubles right_hand_side,
+    cpp11::doubles packed_upper_other)
+{
+    if (terms < 0) { cpp11::stop("`terms` cannot be negative."); }
+
+    const size_t count = static_cast<size_t>(terms);
+    const size_t packedSize = veil::packedTriangleSize(count);
+
+    if (static_cast<size_t>(packed_upper.size()) != packedSize)
+    {
+        cpp11::stop("`packed_upper` must hold %d entries for %d terms, not %d.",
+                    static_cast<int>(packedSize), terms, static_cast<int>(packed_upper.size()));
+    }
+    if (static_cast<size_t>(packed_upper_other.size()) != packedSize)
+    {
+        cpp11::stop("`packed_upper_other` must hold %d entries for %d terms, not %d.",
+                    static_cast<int>(packedSize), terms,
+                    static_cast<int>(packed_upper_other.size()));
+    }
+    if (static_cast<size_t>(right_hand_side.size()) != count)
+    {
+        cpp11::stop("`right_hand_side` must hold %d entries, not %d.", terms,
+                    static_cast<int>(right_hand_side.size()));
+    }
+
+    const std::vector<double> upper(packed_upper.begin(), packed_upper.end());
+    const std::vector<double> other(packed_upper_other.begin(), packed_upper_other.end());
+    const std::vector<double> values(right_hand_side.begin(), right_hand_side.end());
+
+    const veil::CholeskyFactor factor = veil::choleskyFactorPacked(upper, count);
+
+    const auto asDoubles = [](const std::vector<double>& entries)
+    {
+        cpp11::writable::doubles out(static_cast<R_xlen_t>(entries.size()));
+        for (size_t i = 0; i < entries.size(); ++i) { out[static_cast<R_xlen_t>(i)] = entries[i]; }
+        return out;
+    };
+
+    // The status as a name rather than an integer: it is read by tests and by the fitter's message,
+    // and a number would have to be decoded in two places.
+    const auto statusName = [](veil::CholeskyStatus status)
+    {
+        switch (status)
+        {
+            case veil::CholeskyStatus::Ok: return "ok";
+            case veil::CholeskyStatus::NotFinite: return "not_finite";
+            case veil::CholeskyStatus::NotPositiveDefinite: return "not_positive_definite";
+            case veil::CholeskyStatus::NearlySingular: return "nearly_singular";
+        }
+        return "unknown";
+    };
+
+    cpp11::writable::strings status(1);
+    status[0] = statusName(factor.status);
+
+    return cpp11::writable::list({
+        "positive_definite"_nm = factor.positiveDefinite(),
+        "status"_nm = status,
+        "dependency"_nm = asDoubles(veil::choleskyDependency(factor)),
+        "failed_parameter"_nm = static_cast<int>(factor.failedParameter),
+        "terms"_nm = static_cast<int>(factor.terms),
+        "factor"_nm = asDoubles(factor.factorPacked),
+        "triangular_inverse"_nm = asDoubles(veil::choleskyTriangularInversePacked(factor)),
+        "solve"_nm = asDoubles(veil::choleskySolve(factor, values)),
+        "inverse"_nm = asDoubles(veil::choleskyInversePacked(factor)),
+        "quadratic_form"_nm = veil::choleskyQuadraticForm(factor, values),
+        "trace"_nm = veil::choleskyTraceOfProductWithInverse(factor, other),
+    });
 }

@@ -144,10 +144,18 @@ cpp_veil_aev <- function(mortality, weight, columns, time_scale, include, overdi
   .Call(`_logmu_cpp_veil_aev`, mortality, weight, columns, time_scale, include, overdispersion, threads)
 }
 
+cpp_veil_fit <- function(mortality, terms, beta, weight, val_similarity, val_distance, columns, time_scale, include, keep_contributions, threads) {
+  .Call(`_logmu_cpp_veil_fit`, mortality, terms, beta, weight, val_similarity, val_distance, columns, time_scale, include, keep_contributions, threads)
+}
+
 cpp_veil_run <- function(specs, columns, time_scale, keep_contributions, threads) {
   .Call(`_logmu_cpp_veil_run`, specs, columns, time_scale, keep_contributions, threads)
 }
 
 cpp_veil_intervals <- function(node, columns) {
   .Call(`_logmu_cpp_veil_intervals`, node, columns)
+}
+
+cpp_veil_cholesky <- function(packed_upper, terms, right_hand_side, packed_upper_other) {
+  .Call(`_logmu_cpp_veil_cholesky`, packed_upper, terms, right_hand_side, packed_upper_other)
 }
