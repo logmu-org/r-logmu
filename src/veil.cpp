@@ -22,6 +22,7 @@
 #include "veil/ColumnView.hpp"
 #include "veil/DateyInterval.hpp"
 #include "veil/Engine.hpp"
+#include "veil/FitLoop.hpp"
 #include "veil/FitRecipe.hpp"
 #include "veil/Instruction.hpp"
 #include "veil/Interpreter.hpp"

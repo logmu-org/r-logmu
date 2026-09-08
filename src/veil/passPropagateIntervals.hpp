@@ -310,6 +310,14 @@ inline std::vector<Interval> passPropagateIntervals(
         {
             result = detail::objInterval(std::get<ObjPayload>(node.payload), objs);
         }
+        else if (isParam(node))
+        {
+            // UNKNOWN, AND IT MUST STAY UNKNOWN. A coefficient's value is whatever the fitter's next
+            // iteration makes it, so nothing here may bound it -- narrowing a comparison or folding a
+            // branch on the strength of the STARTING value would compile a block that is wrong for
+            // every later one. `result` is already `Interval::unknown()`; the branch exists to keep
+            // the node out of the call arm below, which would read it as a `CallPayload` and throw.
+        }
         else
         {
             const CallPayload& call = std::get<CallPayload>(node.payload);

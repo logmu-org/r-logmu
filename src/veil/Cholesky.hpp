@@ -374,6 +374,67 @@ inline double choleskyTraceOfProductWithInverse(
     return total;
 }
 
+// THE SANDWICH `A^-1 B A^-1`, packed upper, which is what `Var(beta_hat)` is.
+//
+// With `A = Ew XX^T` and `B = Ew^2 XX^T` the raw moments, `I = Omega^-1 A` and `J = Omega^-1 B`, so
+//
+//     Var(beta_hat) = I^-1 J I^-1 = Omega * A^-1 B A^-1
+//
+// and the Omega belongs to the caller, exactly as it does everywhere else in the fit. This function
+// answers the bracket alone.
+//
+// Symmetric by construction, since B is symmetric and `A^-1` is too, so only the upper triangle is
+// formed. NaN-filled when the factorisation failed, like every other reader of the factor.
+inline std::vector<double> choleskySandwich(
+    const CholeskyFactor& factor,
+    const std::vector<double>& packedUpperOther)
+{
+    const size_t terms = factor.terms;
+    if (packedUpperOther.size() != packedTriangleSize(terms))
+    {
+        throw std::invalid_argument("veil: the sandwich's middle matrix is the wrong length.");
+    }
+
+    std::vector<double> result(packedTriangleSize(terms), std::numeric_limits<double>::quiet_NaN());
+    if (!factor.positiveDefinite()) { return result; }
+
+    const std::vector<double> inverse = choleskyInversePacked(factor);
+    const auto at = [terms](const std::vector<double>& packed, size_t row, size_t column)
+    {
+        return packed[packedTriangleIndex(row, column, terms)];
+    };
+
+    // `middle = A^-1 B`, which is NOT symmetric and so is held in full.
+    std::vector<double> middle(terms * terms, 0.0);
+    for (size_t row = 0; row < terms; ++row)
+    {
+        for (size_t column = 0; column < terms; ++column)
+        {
+            double total = 0.0;
+            for (size_t inner = 0; inner < terms; ++inner)
+            {
+                total += at(inverse, row, inner) * at(packedUpperOther, inner, column);
+            }
+            middle[row * terms + column] = total;
+        }
+    }
+
+    for (size_t row = 0; row < terms; ++row)
+    {
+        for (size_t column = row; column < terms; ++column)
+        {
+            double total = 0.0;
+            for (size_t inner = 0; inner < terms; ++inner)
+            {
+                total += middle[row * terms + inner] * at(inverse, inner, column);
+            }
+            result[packedTriangleIndex(row, column, terms)] = total;
+        }
+    }
+
+    return result;
+}
+
 // WHICH EARLIER COVARIATES ACCOUNT FOR THE ONE THAT FAILED.
 //
 // A pivot index says WHERE a dependency was detected, not WHAT depends on what, and the two are

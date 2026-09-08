@@ -350,7 +350,8 @@ inline void passAnnotateTypes(Tree& tree, const std::vector<TypeFull>& columnTyp
     for (NodeId id = 0; id < static_cast<NodeId>(tree.size()); ++id)
     {
         Node& node = tree.at(id);
-        if (node.type.has_value()) { continue; } // Lits are typed by the builders.
+        // Lits and params are typed by the builders.
+        if (node.type.has_value()) { continue; }
 
         // TypeFull has const members, so optional<TypeFull> is not assignable; emplace constructs
         // the value in place.

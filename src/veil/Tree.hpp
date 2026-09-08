@@ -89,6 +89,13 @@ public:
         return this->add(Node{LitPayload{value, type}, type, {}});
     }
 
+    // A model coefficient. Typed here, like a literal, because there is only one thing it can be --
+    // beta multiplies a covariate and the product is a log mortality, so it is a plain number.
+    NodeId buildParam(ParamId param)
+    {
+        return this->add(Node{ParamPayload{param}, TypeFull::createDouble(), {}});
+    }
+
     NodeId buildLitText(std::string value)
     {
         return this->add(Node{LitPayload{std::move(value), TypeFull::createText()}, TypeFull::createText(), {}});

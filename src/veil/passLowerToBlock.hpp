@@ -780,6 +780,14 @@ struct Lowerer final
             const FieldPayload& field = std::get<FieldPayload>(node.payload);
             operand = this->columnOperand(field.column, node.type.value());
         }
+        else if (isParam(node))
+        {
+            // A coefficient becomes a constant the block can find again by id. It starts at zero
+            // because a fit does, and the fitter overwrites it before the first run if the user
+            // asked for something else -- so nothing here needs to know the starting values.
+            operand = this->block.addParameter(TypeFull::createDouble(),
+                                               std::get<ParamPayload>(node.payload).param, 0.0);
+        }
         else
         {
             operand = this->lowerCall(id, node, std::get<CallPayload>(node.payload));

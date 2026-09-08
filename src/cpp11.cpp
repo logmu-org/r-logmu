@@ -259,10 +259,17 @@ extern "C" SEXP _logmu_cpp_veil_aev(SEXP mortality, SEXP weight, SEXP columns, S
   END_CPP11
 }
 // veil_for_R.cpp
-cpp11::list cpp_veil_fit(cpp11::list mortality, cpp11::list terms, cpp11::doubles beta, SEXP weight, SEXP val_similarity, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, bool keep_contributions, int threads);
-extern "C" SEXP _logmu_cpp_veil_fit(SEXP mortality, SEXP terms, SEXP beta, SEXP weight, SEXP val_similarity, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP keep_contributions, SEXP threads) {
+cpp11::list cpp_veil_fit(cpp11::list mortality, cpp11::list terms, cpp11::list betas, SEXP weight, SEXP val_similarity, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, bool keep_contributions, int threads);
+extern "C" SEXP _logmu_cpp_veil_fit(SEXP mortality, SEXP terms, SEXP betas, SEXP weight, SEXP val_similarity, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP keep_contributions, SEXP threads) {
   BEGIN_CPP11
-    return cpp11::as_sexp(cpp_veil_fit(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(beta), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_similarity), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<bool>>(keep_contributions), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
+    return cpp11::as_sexp(cpp_veil_fit(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(betas), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_similarity), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<bool>>(keep_contributions), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
+  END_CPP11
+}
+// veil_for_R.cpp
+cpp11::list cpp_veil_fit_run(cpp11::list mortality, cpp11::list terms, SEXP weight, SEXP val_similarity, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, cpp11::doubles start, int max_iterations, double tolerance, double armijo, double max_halvings, double overdispersion, double z_scale, int threads);
+extern "C" SEXP _logmu_cpp_veil_fit_run(SEXP mortality, SEXP terms, SEXP weight, SEXP val_similarity, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP start, SEXP max_iterations, SEXP tolerance, SEXP armijo, SEXP max_halvings, SEXP overdispersion, SEXP z_scale, SEXP threads) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(cpp_veil_fit_run(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_similarity), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(start), cpp11::as_cpp<cpp11::decay_t<int>>(max_iterations), cpp11::as_cpp<cpp11::decay_t<double>>(tolerance), cpp11::as_cpp<cpp11::decay_t<double>>(armijo), cpp11::as_cpp<cpp11::decay_t<double>>(max_halvings), cpp11::as_cpp<cpp11::decay_t<double>>(overdispersion), cpp11::as_cpp<cpp11::decay_t<double>>(z_scale), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
   END_CPP11
 }
 // veil_for_R.cpp
@@ -318,6 +325,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_logmu_cpp_veil_eval",              (DL_FUNC) &_logmu_cpp_veil_eval,               2},
     {"_logmu_cpp_veil_eval_multi",        (DL_FUNC) &_logmu_cpp_veil_eval_multi,         2},
     {"_logmu_cpp_veil_fit",               (DL_FUNC) &_logmu_cpp_veil_fit,               11},
+    {"_logmu_cpp_veil_fit_run",           (DL_FUNC) &_logmu_cpp_veil_fit_run,           16},
     {"_logmu_cpp_veil_fold",              (DL_FUNC) &_logmu_cpp_veil_fold,               2},
     {"_logmu_cpp_veil_ingest_ast",        (DL_FUNC) &_logmu_cpp_veil_ingest_ast,         2},
     {"_logmu_cpp_veil_integrate",         (DL_FUNC) &_logmu_cpp_veil_integrate,          4},

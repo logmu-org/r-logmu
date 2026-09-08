@@ -20,6 +20,11 @@ using OperandId = uint32_t;
 
 constexpr OperandId invalidOperandId = static_cast<OperandId>(-1);
 
+// WHICH COEFFICIENT OF A FITTED MODEL, by its position in the model's covariate list. It lives here
+// rather than with the tree's own ids because the BLOCK owns parameters -- the tree merely has a
+// leaf that names one, exactly as it has a leaf naming a `ColumnId` the data layer owns.
+using ParamId = uint32_t;
+
 enum class OperandShape : uint8_t
 {
     Scalar = 1,

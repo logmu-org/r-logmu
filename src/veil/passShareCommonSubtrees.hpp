@@ -151,6 +151,19 @@ inline ShareKey shareKeyOf(const Node& node, std::vector<NodeId> canonicalArgs)
                         selfType, selfMax, -1, -1, {}};
     }
 
+    if (const auto* param = std::get_if<ParamPayload>(&node.payload))
+    {
+        // KEYED BY WHICH COEFFICIENT IT IS, so two parameters never merge however equal their
+        // current values. That is the whole reason a parameter is not a literal: this pass keys a
+        // double literal by its BITS, and a fit starts every coefficient at zero, so as literals
+        // they would all collapse onto one operand and setting one would move the rest.
+        //
+        // Two references to the SAME coefficient DO share, which is right -- one beta is one number
+        // wherever it appears.
+        return ShareKey{5, 0, {}, 0, static_cast<long long>(param->param),
+                        selfType, selfMax, -1, -1, {}};
+    }
+
     const CallPayload& call = std::get<CallPayload>(node.payload);
     return ShareKey{4, static_cast<int>(call.op), {}, 0, 0, selfType, selfMax, -1, -1,
                     std::move(canonicalArgs)};

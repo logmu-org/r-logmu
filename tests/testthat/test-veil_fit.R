@@ -61,8 +61,18 @@ fit <- function(terms = list(), mortality = it_obj(constant_mortality), weight =
                 include = NULL, time_scale = quarter_scale, columns = cols,
                 keep_contributions = TRUE, threads = 1L,
                 beta = rep(0, length(terms))) {
-  cpp_veil_fit(mortality, terms, as.double(beta), weight, NULL, NULL, columns, time_scale, include,
-               keep_contributions, threads)
+  result <- cpp_veil_fit(mortality, terms, list(as.double(beta)), weight, NULL, NULL, columns,
+                         time_scale, include, keep_contributions, threads)
+  # Flattened to one run, so a test that cares about one beta reads the answers directly. The
+  # multi-beta shape is what `fit_at()` below exercises.
+  c(result[setdiff(names(result), "runs")], result$runs[[1]])
+}
+
+# The same block run at SEVERAL betas, which is the shape the Newton loop needs: compile once, set
+# the coefficients, run again.
+fit_at <- function(betas, terms, ...) {
+  cpp_veil_fit(it_obj(constant_mortality), terms, lapply(betas, as.double), NULL, NULL, NULL,
+               cols, quarter_scale, NULL, FALSE, 1L)
 }
 
 aev <- function(weight = NULL, include = NULL, time_scale = quarter_scale, columns = cols) {
@@ -305,4 +315,318 @@ test_that("beta reaches the accumulation through the mortality it was folded int
 
   # The score's actual part does not see the mortality at all.
   expect_identical(doubled$score_actual, plain$score_actual)
+})
+
+# THE PARAMETER LEAF.
+#
+# A coefficient is constant across every individual and changes between runs, so it lowers to a
+# `ConstantBinding` the block can rewrite. What it must never be is a LITERAL: `passFoldConstants`
+# would bake the starting value into a folded product, and `passShareCommonSubtrees` keys a double
+# literal by its bits and merges equal ones -- and a fit starts every coefficient at zero, so as
+# literals they would all collapse onto one operand and setting one would move the rest.
+
+test_that("each coefficient gets its own parameter slot, however equal their values", {
+  # THE MERGE IS INVISIBLE IN THE ARITHMETIC UNTIL A BETA MOVES, which is why this is asserted
+  # directly rather than inferred. Three terms all starting at zero is exactly the case that would
+  # collapse to one slot were the coefficients literals.
+  res <- fit_at(list(c(0, 0, 0)), list(it_ast(~ 1), it_ast(~ 2), it_ast(~ 3)))
+  expect_identical(res$term_count, 3L)
+  expect_identical(res$parameter_count, 3L)
+
+  # And with no terms there is nothing to parameterise.
+  expect_identical(fit_at(list(numeric(0)), list())$parameter_count, 0L)
+})
+
+test_that("a coefficient reaches the answer, and only its own term", {
+  terms <- list(it_ast(~ 1), it_ast(~ 1))
+
+  # `log mu = -3.2 + b1 * 1 + b2 * 1`, so E scales by exp(b1 + b2). Moving ONE coefficient must
+  # scale by exp of that one alone -- if the two slots had merged, setting the first would move both
+  # and the factor would be exp(2 * 0.25) instead.
+  res <- fit_at(list(c(0, 0), c(0.25, 0), c(0, 0.25), c(0.25, 0.25)), terms)
+  base <- res$runs[[1]]$E
+
+  expect_equal(res$runs[[2]]$E, base * exp(0.25), tolerance = 1e-12)
+  expect_equal(res$runs[[3]]$E, base * exp(0.25), tolerance = 1e-12)
+  expect_equal(res$runs[[4]]$E, base * exp(0.50), tolerance = 1e-12)
+})
+
+test_that("a parameter answers exactly what the same value written into the mortality does", {
+  # THE ORACLE IS THE OTHER MECHANISM. Setting a coefficient to 0.5 against a constant term of one
+  # must give precisely what a mortality of `log_mu + 0.5` gives with no coefficient at all -- the
+  # same arithmetic reached two entirely different ways.
+  viaParameter <- fit_at(list(0.5), list(it_ast(~ 1)))$runs[[1]]
+
+  shifted <- mortality_const(log_mu = log_mu_value + 0.5)
+  viaMortality <- fit(terms = list(), mortality = it_obj(shifted), keep_contributions = FALSE)
+
+  expect_equal(viaParameter$E, viaMortality$E, tolerance = 1e-12)
+  expect_equal(viaParameter$A, viaMortality$A, tolerance = 1e-12)
+})
+
+test_that("running the same block again at the same beta gives bit-identical answers", {
+  # NO STATE MAY LEAK BETWEEN RUNS. The interpreter writes the constants into its registers when it
+  # is built for a chunk, so a second run at the same coefficients must reproduce the first exactly
+  # -- and coming back to a beta after visiting another must reproduce it too, which is what a
+  # backtracking line search does every time it rejects a step.
+  res <- fit_at(list(c(0.3, -0.2), c(1.1, 0.7), c(0.3, -0.2)), list(it_ast(~ 1), it_ast(~ 2)))
+
+  expect_identical(res$runs[[1]]$E, res$runs[[3]]$E)
+  expect_identical(res$runs[[1]]$ew_xx, res$runs[[3]]$ew_xx)
+  expect_identical(res$runs[[1]]$score_expected, res$runs[[3]]$score_expected)
+  expect_false(identical(res$runs[[1]]$E, res$runs[[2]]$E))
+})
+
+test_that("one compiled block serves every beta", {
+  # The structure is settled at compile time and nothing in the loop may move it. Were the block
+  # recompiled per beta, folding could give a different shape for different starting values.
+  many <- fit_at(list(0, 0.5, -0.5, 2), list(it_ast(~ 1)))
+  expect_identical(length(many$runs), 4L)
+  expect_identical(many$parameter_count, 1L)
+
+  one <- fit_at(list(0.5), list(it_ast(~ 1)))
+  expect_identical(many$instruction_count, one$instruction_count)
+  expect_identical(many$output_count, one$output_count)
+  expect_identical(many$runs[[2]]$E, one$runs[[1]]$E)
+})
+
+test_that("a beta of the wrong length is refused", {
+  expect_error(fit_at(list(c(0, 0)), list(it_ast(~ 1))), "one value for each model term")
+})
+
+# THE NEWTON-RAPHSON LOOP.
+#
+# `cpp_veil_fit_run` compiles one block and iterates on it, setting the coefficients between runs.
+# Nothing is recompiled, which is what the parameter leaf above exists for.
+
+fit_run <- function(terms = list(it_ast(~ 1)), mortality = it_obj(constant_mortality),
+                    weight = it_ast(~ .i$amount), include = NULL, columns = cols,
+                    start = rep(0, length(terms)), max_iterations = 25L, tolerance = 1e-6,
+                    armijo = 1e-4, max_halvings = 30, overdispersion = no_overdispersion,
+                    z_scale = 1, threads = 1L) {
+  cpp_veil_fit_run(mortality, terms, weight, NULL, NULL, columns, quarter_scale, include,
+                   as.double(start), as.integer(max_iterations), tolerance, armijo,
+                   max_halvings, overdispersion, z_scale, as.integer(threads))
+}
+
+test_that("a single constant covariate has an exact answer, and the fit finds it", {
+  # log mu = log mu_ref + beta, so L is maximised where exp(beta) Ew = Aw and
+  #
+  #     beta_hat = log(Aw / Ew)
+  #
+  # taken at beta = 0 -- which is precisely the A and E of an A/E on the reference mortality. An
+  # analytic oracle from a different recipe, not a second run of this one.
+  reference <- aev(weight = it_ast(~ .i$amount))
+  expected <- log(reference$A / reference$E)
+
+  res <- fit_run()
+
+  expect_identical(res$status, "converged")
+
+  # THE BOUND COMES FROM THE STOPPING RULE, not from a round number. Stopping when the gain still
+  # available is below eps means the loss in L is at most eps, and that loss is `d^2 I / 2` where I
+  # is the information -- so `d <= sqrt(2 eps / I)`. Here I is Ew at the optimum, which is Aw, about
+  # 1400, giving about 4e-5. Measured: 8e-10.
+  #
+  # NOT IN UNITS OF THE REPORTED STANDARD ERROR, which is a different quantity. `sqrt(2 eps)` in
+  # standard errors holds only where J = I -- unweighted or indicator-weighted data. With amount
+  # weights the sandwich variance here is 1.33 against an information inverse of 7e-4, so the two
+  # yardsticks differ by a factor of forty.
+  expect_lt(abs(res$beta - expected), sqrt(2 * 1e-6 / reference$A))
+
+  expect_lte(res$predicted_gain, 1e-6)
+  expect_true(is.finite(res$log_likelihood))
+})
+
+test_that("the answer does not depend on where beta started", {
+  # The objective is strictly concave for a non-negative weight, so there is ONE maximum and any
+  # start must reach it. Starting far out is also what exercises the damping: a full Newton step
+  # from beta = 4 overshoots badly.
+  base <- fit_run()
+  target <- base$beta
+  standardError <- sqrt(base$variance)
+
+  # Each run is within `sqrt(2 eps / I)` of the maximum, so two are within twice that of each other.
+  # `standardError` is deliberately NOT the yardstick -- see the note above on why the sandwich
+  # variance and the information inverse are different quantities here.
+  reference <- aev(weight = it_ast(~ .i$amount))
+  bound <- 2 * sqrt(2 * 1e-6 / reference$A)
+
+  for (start in list(0, 2, -2, 4, 8, -8)) {
+    res <- fit_run(start = start)
+    expect_identical(res$status, "converged")
+    expect_lt(abs(res$beta - target), bound)
+  }
+  expect_true(standardError > 0)
+})
+
+test_that("the variance and the penalty match what the A/E says they must be", {
+  # For the intercept-only model both collapse onto the reference A/E:
+  #
+  #     Var(beta_hat) = Omega Ew^2(beta_hat) / Aw^2  =  V / (A E)
+  #
+  # because Ew(beta_hat) = Aw at the maximum and V already carries Omega, which therefore cancels.
+  reference <- aev(weight = it_ast(~ .i$amount))
+  res <- fit_run()
+
+  expect_identical(res$status, "converged")
+  expect_equal(res$variance, reference$V / (reference$A * reference$E), tolerance = 1e-8)
+})
+
+test_that("one parameter costs exactly one on the L scale for an indicator weight", {
+  # p = tr(J I^-1) / Z, and where w^2 = w the second moment IS the first, so the trace is the number
+  # of parameters and Z is one. This is the fact the whole `delta_L` convention rests on -- that a
+  # tolerance in units of L means "a fraction of one parameter's worth".
+  res <- fit_run(weight = it_ast(~ .i$male), z_scale = 1)
+
+  expect_identical(res$status, "converged")
+  expect_equal(res$penalty, 1, tolerance = 1e-10)
+})
+
+test_that("an unidentifiable model fails and names the dependency", {
+  # THE SAME COVARIATE TWICE. beta_1 + beta_2 is determined but neither one is, so there is no
+  # maximum -- and a fit returns a fit or it fails.
+  res <- fit_run(terms = list(it_ast(~ 1), it_ast(~ 1)))
+
+  expect_identical(res$status, "not_identifiable")
+
+  # Detected at the SECOND covariate, because the first is fine on its own.
+  expect_identical(res$failed_parameter, 1L)
+
+  # And the diagnosis names the earlier one: covariate 2 is 1.0 times covariate 1.
+  expect_equal(res$dependency, 1, tolerance = 1e-8)
+})
+
+test_that("a covariate with no exposure of its own is refused rather than fitted", {
+  # `.i$male & !.i$male` is identically zero, so it contributes nothing anywhere and its own
+  # information diagonal is zero. Nothing can be estimated from it.
+  res <- fit_run(terms = list(it_ast(~ .i$male & !.i$male)))
+  expect_identical(res$status, "not_identifiable")
+  expect_identical(res$failed_parameter, 0L)
+  expect_identical(length(res$dependency), 0L)
+})
+
+test_that("running out of iterations is a failure, not a quiet answer", {
+  res <- fit_run(start = 6, max_iterations = 1L)
+  expect_identical(res$status, "did_not_converge")
+
+  # The gain still available is reported, so a caller can see how far off it was.
+  expect_true(is.finite(res$predicted_gain))
+  expect_gt(res$predicted_gain, 1e-6)
+})
+
+test_that("damping fires below the optimum and not above it", {
+  # THE ASYMMETRY IS `exp`, AND IT IS THE OPPOSITE WAY ROUND FROM "far away means damping". A step
+  # that RAISES mortality overshoots, because the exponential grows faster than the quadratic model
+  # predicts; a step that LOWERS it undershoots, so the full step is always an improvement and
+  # nothing is ever halved. Measured on this data, where the reference table is out by a factor of
+  # four so even zero is below the optimum:
+  #
+  #     start  iterations  walks  halvings
+  #        -8           6     20        14
+  #         0           5      6         1
+  #        +4           7      7         0
+  #        +8          11     11         0
+  #
+  # Note the trade: from below it converges in FEWER iterations but more walks, because from above
+  # the Newton step is bounded by about one per iteration.
+  below <- fit_run(start = -5)
+  above <- fit_run(start = 4)
+
+  expect_identical(below$status, "converged")
+  expect_identical(above$status, "converged")
+
+  # A walk per iteration, plus one for the starting point, and one more for every rejected trial.
+  expect_gt(below$evaluations, below$iterations)
+  expect_identical(above$evaluations, above$iterations)
+})
+
+test_that("the block is compiled once however many iterations run", {
+  # One parameter slot per term, whatever the iteration count -- the loop never recompiles, so this
+  # cannot drift with the number of walks.
+  res <- fit_run(terms = list(it_ast(~ 1), it_ast(~ .i$male)), start = c(0, 0))
+  expect_identical(res$term_count, 2L)
+  expect_identical(res$parameter_count, 2L)
+})
+
+test_that("armijo at or above one half is refused", {
+  # One half is exactly what a full Newton step delivers on a quadratic, so anything at or above it
+  # rejects the full step near the optimum and the iteration can never finish.
+  expect_error(fit_run(armijo = 0.5), "strictly between 0 and 0.5")
+  expect_error(fit_run(armijo = 0), "strictly between 0 and 0.5")
+})
+
+test_that("the predicted gain is the gain actually available, not twice it", {
+  # THE HALF IS NOT DECORATION. Along the Newton direction the linear term promises `grad . step`
+  # and the curvature gives half of it back, so half is what a full step actually delivers. Take one
+  # step from close to the optimum, where the quadratic approximation is good, and the realised gain
+  # in L must match `predicted_gain` -- not half it, and not twice it.
+  start <- 1.3
+
+  atStart <- cpp_veil_fit(it_obj(constant_mortality), list(it_ast(~ 1)), list(start),
+                          it_ast(~ .i$amount), NULL, NULL, cols, quarter_scale, NULL, FALSE, 1L)
+  before <- atStart$runs[[1]]$A - atStart$runs[[1]]$E
+
+  stepped <- fit_run(start = start, max_iterations = 1L)
+  expect_identical(stepped$status, "did_not_converge")
+
+  # ONE WALK FOR THE STARTING POINT PLUS ONE FOR THE STEP. `evaluations == iterations` holds only
+  # when the last iteration CONVERGED, because a converging iteration returns without stepping. Here
+  # it stepped and then ran out of budget, so there is one more walk than iterations -- and nothing
+  # was halved, which is what matters for the comparison below.
+  expect_identical(stepped$evaluations, stepped$iterations + 1L)
+
+  # THE CUBIC REMAINDER IS WHY THIS IS NOT EXACT. The quadratic model ignores the third-order term,
+  # which over a step of about 0.11 in beta is a few per cent -- and it is optimistic, since the step
+  # raises mortality and the exponential outruns the quadratic. Measured: 7.89 realised against 8.21
+  # predicted. Dropping the half would predict 16.4, which no remainder explains.
+  realised <- stepped$log_likelihood - before
+  expect_equal(realised, stepped$predicted_gain, tolerance = 0.05)
+})
+
+test_that("the Armijo constant is actually used", {
+  # At 1e-4 the condition is nearly inert, which is the point -- it rejects only a step that has
+  # overshot. Wound up close to its ceiling of one half it becomes demanding, and a start below the
+  # optimum then needs more halvings. Were the test written as "any improvement at all", the
+  # constant would make no difference whatever and these two would agree.
+  slack <- fit_run(start = -5, armijo = 1e-4)
+  strict <- fit_run(start = -5, armijo = 0.49)
+
+  expect_identical(slack$status, "converged")
+  expect_identical(strict$status, "converged")
+  expect_gt(strict$evaluations, slack$evaluations)
+})
+
+test_that("Omega and Z land where the maths says and nowhere else", {
+  # A TIGHT TOLERANCE, so all three stop at effectively the same beta. Omega and Z reach the
+  # CONVERGENCE TEST as well as the reported quantities, so at the ordinary tolerance the three runs
+  # stop at slightly different points and the ratios below carry that wobble rather than the scaling
+  # being tested.
+  plain <- fit_run(tolerance = 1e-12)
+  dispersed <- fit_run(tolerance = 1e-12, overdispersion = 2)
+  scaled <- fit_run(tolerance = 1e-12, z_scale = 2)
+
+  # Var(beta_hat) = Omega A^-1 B A^-1, so overdispersion scales it and Z does not.
+  expect_equal(dispersed$variance, plain$variance * 2, tolerance = 1e-8)
+  expect_equal(scaled$variance, plain$variance, tolerance = 1e-8)
+
+  # p = tr(B A^-1) / Z, so Z scales it and Omega cancels out of it entirely.
+  expect_equal(dispersed$penalty, plain$penalty, tolerance = 1e-8)
+  expect_equal(scaled$penalty, plain$penalty / 2, tolerance = 1e-8)
+
+  # L = (Aw log mu - Ew) / (Omega Z), so both scale it.
+  expect_equal(dispersed$log_likelihood, plain$log_likelihood / 2, tolerance = 1e-8)
+  expect_equal(scaled$log_likelihood, plain$log_likelihood / 2, tolerance = 1e-8)
+})
+
+test_that("Omega and Z reach the convergence test", {
+  # `predicted_gain` is on the L scale, so dividing L by a large Z makes the same step look
+  # insignificant and the fit stops sooner. Were the scale left out of that one expression, Z would
+  # change what is reported and nothing about when the loop ends.
+  tight <- fit_run(start = -5, z_scale = 1)
+  loose <- fit_run(start = -5, z_scale = 1e6)
+
+  expect_identical(tight$status, "converged")
+  expect_identical(loose$status, "converged")
+  expect_lt(loose$iterations, tight$iterations)
 })

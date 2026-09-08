@@ -72,6 +72,23 @@ struct ConstantBinding final
     ScalarValue value = 0.0;
 };
 
+// A FITTED COEFFICIENT, and where its value lives.
+//
+// A parameter IS a constant -- written into its operand once before any individual, exactly like any
+// other -- so it needs no new machinery in the interpreter. What the block adds is a note of WHICH
+// constant it is, so the fitter can replace the value between iterations without recompiling
+// anything. That is the whole mechanism: compile once, set k doubles, run again.
+//
+// Recompiling instead would be wrong rather than merely slow. Folding would bake each beta into
+// constants afresh, so the block could change SHAPE between iterations -- different sharing,
+// different hoisting -- and the objective a line search evaluates would not be structurally the one
+// the Newton step was computed from.
+struct ParameterBinding final
+{
+    ParamId param = 0;
+    size_t constant = 0; // Index into the constant list, not an operand id.
+};
+
 // An operand the host refills from a data column, once for each individual in turn.
 struct ColumnBinding final
 {
@@ -124,6 +141,16 @@ public:
     {
         const OperandId id = this->addOperand(type);
         this->constantList.push_back(ConstantBinding{id, value});
+        return id;
+    }
+
+    // A coefficient, with the value it starts at. Lowering calls this instead of `addConstant` so
+    // that the operand can be found again by parameter id.
+    OperandId addParameter(const TypeFull& type, ParamId param, double initial)
+    {
+        const OperandId id = this->addOperand(type);
+        this->constantList.push_back(ConstantBinding{id, ScalarValue(initial)});
+        this->parameterList.push_back(ParameterBinding{param, this->constantList.size() - 1});
         return id;
     }
 
@@ -260,6 +287,27 @@ public:
     size_t operandCount() const noexcept { return this->operandList.size(); }
 
     const std::vector<ConstantBinding>& constants() const noexcept { return this->constantList; }
+
+    const std::vector<ParameterBinding>& parameters() const noexcept { return this->parameterList; }
+
+    // Replace a coefficient's value. The ONLY thing about a compiled block that may change between
+    // runs, and it changes no structure: the interpreter writes constants into registers when it is
+    // built for a chunk, so the next run picks this up and nothing else moves.
+    //
+    // Throws on an unknown id rather than adding one, because a parameter the block never lowered is
+    // a caller that has lost track of its own model.
+    void setParameter(ParamId param, double value)
+    {
+        for (const ParameterBinding& binding : this->parameterList)
+        {
+            if (binding.param == param)
+            {
+                this->constantList[binding.constant].value = ScalarValue(value);
+                return;
+            }
+        }
+        throw std::runtime_error("veil: no such parameter in this block.");
+    }
     const std::vector<ColumnBinding>& columns() const noexcept { return this->columnList; }
     const std::vector<Instruction>& body() const noexcept { return this->instructionList; }
     const std::vector<OperandId>& outputs() const noexcept { return this->outputList; }
@@ -274,6 +322,7 @@ private:
     std::vector<Operand> operandList;
     std::vector<MortalityTable> tableList;
     std::vector<ConstantBinding> constantList;
+    std::vector<ParameterBinding> parameterList;
     std::vector<ColumnBinding> columnList;
     std::vector<Instruction> prologueList;
     std::vector<Instruction> instructionList;
