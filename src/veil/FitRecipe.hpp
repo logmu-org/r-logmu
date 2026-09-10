@@ -107,10 +107,26 @@ struct FitRoots final
     std::vector<NodeId> scoreActual;   // k of them, died_value(w X_j)
     std::vector<NodeId> scoreExpected; // k of them, integrate(mu w X_j)
 
-    // Both packed upper triangles, k(k+1)/2 each, indexed by packedTriangleIndex.
+    // Both packed upper triangles, k(k+1)/2 each, indexed by packedTriangleIndex. An entry left
+    // `invalidNodeId` is a KNOWN ZERO that no output carries -- see `offDiagonalsOmitted`.
     std::vector<NodeId> ewXX;  // integrate(mu w X_j X_l)
     std::vector<NodeId> ew2XX; // integrate(mu w^2 X_j X_l)
+
+    // Set when the covariates were VERIFIED mutually exclusive, in which case every off-diagonal
+    // integrand `X_j X_l` is identically zero over the included exposure and the integral is not
+    // built at all. One flag rather than a mask, because the pattern is entirely determined by it,
+    // and `fitRootOrder` and `unpackFit` both derive the same pattern from this one place rather
+    // than each holding a copy that has to agree.
+    bool offDiagonalsOmitted = false;
 };
+
+// How many outputs a fit block has, given the terms and whether the off-diagonals were omitted. The
+// one definition, so the builder's check and the loop's unpacking cannot drift.
+inline size_t fitOutputCount(size_t terms, bool offDiagonalsOmitted) noexcept
+{
+    const size_t triangle = offDiagonalsOmitted ? terms : packedTriangleSize(terms);
+    return 2 + 2 * terms + 2 * triangle;
+}
 
 // THE RECIPE BUILDS THE LINEAR PREDICTOR ITSELF, and that is a correctness property rather than a
 // convenience. An earlier draft took a `logMu` that already carried beta, alongside the terms. That
@@ -141,7 +157,13 @@ inline FitRoots buildFitRecipe(
     const std::vector<NodeId>& coefficients,
     NodeId weight,
     NodeId similarity = invalidNodeId,
-    SimilarityForm form = SimilarityForm::Similarity)
+    SimilarityForm form = SimilarityForm::Similarity,
+
+    // ONLY EVER SET FROM A VERIFIED ASSERTION, never from one the user merely made. Omitting an
+    // integral is a compile-time decision, so a false claim here does not produce a slow answer or a
+    // noisy one -- it produces a Hessian for a model nobody wrote, and the fit converges to the
+    // maximum of nothing. `buildDisjointCheckRecipe` is what earns the right to pass true.
+    bool disjointCovariates = false)
 {
     if (coefficients.size() != terms.size())
     {
@@ -240,12 +262,18 @@ inline FitRoots buildFitRecipe(
         roots.scoreExpected.push_back(integrateWeighted(weightTerm, covariate));
     }
 
+    roots.offDiagonalsOmitted = disjointCovariates;
     roots.ewXX.resize(packedTriangleSize(count), invalidNodeId);
     roots.ew2XX.resize(packedTriangleSize(count), invalidNodeId);
     for (size_t row = 0; row < count; ++row)
     {
         for (size_t column = row; column < count; ++column)
         {
+            // THE WHOLE POINT OF THE ASSERTION. `X_j X_l` is identically zero off the diagonal, so
+            // the integral is too, and it is left unbuilt rather than built and discarded -- the
+            // saving is the grid walk, which is where the cost of a fit actually is.
+            if (disjointCovariates && row != column) { continue; }
+
             // Built once and shared by the two triangles, which differ only in their weight factor.
             const NodeId product = tree.buildCall(Op::Mul, {covariates[row], covariates[column]});
             const size_t slot = packedTriangleIndex(row, column, count);
@@ -269,8 +297,12 @@ inline std::vector<NodeId> fitRootOrder(const FitRoots& roots)
     order.push_back(roots.e);
     for (const NodeId id : roots.scoreActual) { order.push_back(id); }
     for (const NodeId id : roots.scoreExpected) { order.push_back(id); }
-    for (const NodeId id : roots.ewXX) { order.push_back(id); }
-    for (const NodeId id : roots.ew2XX) { order.push_back(id); }
+
+    // An omitted off-diagonal has no root and therefore no output. The survivors keep their packed
+    // order, so with the off-diagonals gone they are simply the k diagonals in term order, which is
+    // exactly what `unpackFit` puts back.
+    for (const NodeId id : roots.ewXX) { if (id != invalidNodeId) { order.push_back(id); } }
+    for (const NodeId id : roots.ew2XX) { if (id != invalidNodeId) { order.push_back(id); } }
 
     return order;
 }

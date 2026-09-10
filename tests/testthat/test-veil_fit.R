@@ -403,10 +403,10 @@ fit_run <- function(terms = list(it_ast(~ 1)), mortality = it_obj(constant_morta
                     weight = it_ast(~ .i$amount), include = NULL, columns = cols,
                     start = rep(0, length(terms)), max_iterations = 25L, tolerance = 1e-6,
                     armijo = 1e-4, max_halvings = 30, overdispersion = no_overdispersion,
-                    z_scale = 1, threads = 1L) {
+                    z_scale = 1, disjoint = FALSE, threads = 1L) {
   cpp_veil_fit_run(mortality, terms, weight, NULL, NULL, columns, quarter_scale, include,
                    as.double(start), as.integer(max_iterations), tolerance, armijo,
-                   max_halvings, overdispersion, z_scale, as.integer(threads))
+                   max_halvings, overdispersion, z_scale, disjoint, as.integer(threads))
 }
 
 test_that("a single constant covariate has an exact answer, and the fit finds it", {
@@ -475,7 +475,7 @@ test_that("the variance and the penalty match what the A/E says they must be", {
 
 test_that("one parameter costs exactly one on the L scale for an indicator weight", {
   # p = tr(J I^-1) / Z, and where w^2 = w the second moment IS the first, so the trace is the number
-  # of parameters and Z is one. This is the fact the whole `delta_L` convention rests on -- that a
+  # of parameters and Z is one. This is the fact the whole `L_tolerance` convention rests on -- that a
   # tolerance in units of L means "a fraction of one parameter's worth".
   res <- fit_run(weight = it_ast(~ .i$male), z_scale = 1)
 
@@ -629,4 +629,138 @@ test_that("Omega and Z reach the convergence test", {
   expect_identical(tight$status, "converged")
   expect_identical(loose$status, "converged")
   expect_lt(loose$iterations, tight$iterations)
+})
+
+# THE DISJOINTNESS PRE-FLIGHT WALK.
+#
+# `disjoint()` is an assertion the user makes and R cannot check. Omitting the off-diagonal
+# integrals is a COMPILE-TIME decision, so the claim has to be verified against the data BEFORE the
+# fit block is built -- which is why this is the one place a second block and a second crossing are
+# unavoidable.
+#
+# THE ARITHMETIC IS UNCHANGED, and that is the strongest thing to assert: the omitted integrals are
+# identically zero, so a verified assertion must give BIT-IDENTICAL answers by a shorter route.
+# Nothing numeric can therefore witness the omission, and `off_diagonals_omitted` and `output_count`
+# exist for exactly that reason.
+
+# Three groups by date of birth -- the fixture's births are 1940, 1945 and 1950, one record each.
+birth_groups <- list(
+  it_ast(~ .b < datey::datey(1943)),
+  it_ast(~ .b >= datey::datey(1943) & .b < datey::datey(1948)),
+  it_ast(~ .b >= datey::datey(1948))
+)
+
+test_that("a verified assertion drops the off-diagonal outputs and nothing else", {
+  full <- fit_run(terms = birth_groups, disjoint = FALSE)
+  lean <- fit_run(terms = birth_groups, disjoint = TRUE)
+
+  expect_false(full$off_diagonals_omitted)
+  expect_true(lean$off_diagonals_omitted)
+
+  # 2 + 2k + 2 * triangle against 2 + 2k + 2k.
+  expect_identical(full$output_count, 2L + 2L * 3L + 2L * 6L)
+  expect_identical(lean$output_count, 2L + 2L * 3L + 2L * 3L)
+})
+
+test_that("a verified assertion gives bit-identical answers", {
+  full <- fit_run(terms = birth_groups, disjoint = FALSE)
+  lean <- fit_run(terms = birth_groups, disjoint = TRUE)
+
+  expect_identical(lean$status, full$status)
+  expect_identical(lean$beta, full$beta)
+  expect_identical(lean$log_likelihood, full$log_likelihood)
+  expect_identical(lean$penalty, full$penalty)
+  expect_identical(lean$iterations, full$iterations)
+
+  # The variance carries the off-diagonals back as EXACT zeros, which is what they are.
+  expect_identical(lean$variance, full$variance)
+  expect_equal(lean$variance[c(2, 3, 5)], rep(0, 3))
+})
+
+test_that("a false assertion is refused, naming the pair and the overlap", {
+  # `.i$male` is TRUE on records 1 and 3; `.i$amount > 500` on records 1 and 2. They overlap on
+  # record 1, so the claim is false and the block must not be compiled.
+  overlapping <- list(it_ast(~ .i$male), it_ast(~ .i$amount > 500))
+
+  expect_error(fit_run(terms = overlapping, disjoint = TRUE),
+               "terms 1 and 2 overlap")
+  expect_error(fit_run(terms = overlapping, disjoint = TRUE),
+               "years of exposure")
+
+  # And without the claim it is an ordinary, correct fit.
+  expect_identical(fit_run(terms = overlapping, disjoint = FALSE)$status, "converged")
+})
+
+test_that("the check names the pair it found, not the first pair", {
+  # Terms 1 and 2 are exclusive; 1 and 3 are not. The report must reach the third pair.
+  mixed <- list(it_ast(~ .i$male), it_ast(~ !.i$male), it_ast(~ .i$amount > 500))
+  expect_error(fit_run(terms = mixed, disjoint = TRUE), "terms 1 and 3 overlap")
+})
+
+test_that("the check only has to hold where the fit integrates", {
+  # The same overlapping pair, but an include that keeps only record 2, where they do not overlap.
+  # An individual excluded contributes zero to every off-diagonal integral whatever groups they are
+  # in, so refusing this fit would refuse a sound one.
+  overlapping <- list(it_ast(~ .i$male), it_ast(~ .i$amount > 500))
+
+  expect_error(fit_run(terms = overlapping, disjoint = TRUE), "overlap")
+
+  # RETURNING AT ALL IS THE ASSERTION. The check refuses by throwing, so a result -- of any status --
+  # is proof that it accepted. What the fit then makes of a population this small is a separate
+  # question and not what this test is about.
+  narrowed <- fit_run(terms = overlapping, include = include(.i$amount > 2000), disjoint = TRUE)
+  expect_true(narrowed$off_diagonals_omitted)
+  expect_identical(narrowed$term_count, 2L)
+})
+
+test_that("a NaN convicts rather than acquitting", {
+  # Every comparison against NaN is false, so a test written `total != 0` would let one THROUGH --
+  # and an assertion that cannot be evaluated has not been verified. Same shape and same reason as
+  # the Cholesky pivot test.
+  not_a_number <- list(it_ast(~ .i$male), it_ast(~ log(0 - .i$amount)))
+  expect_error(suppressWarnings(fit_run(terms = not_a_number, disjoint = TRUE)),
+               "terms 1 and 2 overlap")
+})
+
+test_that("fewer than two terms has nothing to check and is not refused", {
+  # No pairs, so no block to run at all -- and a single term is trivially exclusive of nothing.
+  one <- fit_run(terms = list(it_ast(~ 1)), disjoint = TRUE)
+  expect_identical(one$status, "converged")
+  expect_true(one$off_diagonals_omitted)
+  expect_identical(one$output_count, 2L + 2L + 2L)
+
+  none <- fit_run(terms = list(), disjoint = TRUE)
+  expect_identical(none$output_count, 2L)
+})
+
+# The two witnesses below exist because the disable-and-recheck found their guards unwitnessed: a
+# suite of indicator terms can see neither the absolute value nor the coercion, since indicators are
+# already non-negative and already coerce cleanly.
+
+test_that("a signed term cannot cancel its way past the check", {
+  # Exposures are 3, 2 and 1 years. These two terms have products 2, -3 and 0, so the raw
+  # exposure-weighted sum is 2*3 - 3*2 = 0 EXACTLY -- a false assertion that would sail through on a
+  # sum of products. Taking the magnitude first gives 12 and convicts it.
+  #
+  # Non-negativity is precisely what nobody has proved about a term: it is the same unknown that
+  # makes this walk necessary at all.
+  signed_cols <- modifyList(cols, list(left = c(2, -3, 0), right = c(1, 1, 0)))
+  signed_terms <- list(it_ast(~ .i$left), it_ast(~ .i$right))
+
+  expect_error(fit_run(terms = signed_terms, columns = signed_cols, disjoint = TRUE),
+               "terms 1 and 2 overlap")
+})
+
+test_that("a duration-valued term is checked rather than refused", {
+  # `durationy * durationy` is a product datey does not define and veil rightly refuses, so the
+  # check has to coerce every term exactly as the fit recipe does. These two never overlap, so the
+  # assertion holds -- and without the coercion it would not get as far as saying so.
+  duration_cols <- modifyList(cols, list(
+    service = datey::durationy(c(0, 5, 0)),
+    leave   = datey::durationy(c(3, 0, 0))))
+  duration_terms <- list(it_ast(~ .i$service), it_ast(~ .i$leave))
+
+  checked <- fit_run(terms = duration_terms, columns = duration_cols, disjoint = TRUE)
+  expect_true(checked$off_diagonals_omitted)
+  expect_identical(checked$term_count, 2L)
 })

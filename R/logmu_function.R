@@ -46,15 +46,33 @@ stop_logmu_immutable <- function() {
 
 # ---- operators -------------------------------------------------------------
 #
-# A single `Ops` method for the whole family, switching on the operator. The
-# only object-level operator is `&`, which intersects two subsets (includes
-# and/or indicators) into one. Logical `|`/`!` have no object-level meaning --
-# they are ordinary R operators used *inside* a pronoun expression.
+# A single `Ops` method for the whole family, switching on the operator. Two
+# operators have an object-level meaning and no others do:
+#
+#   `&`  intersects two subsets (includes and/or indicators) into one;
+#   `*`  distributes a scalar function over a `covariates` list, or crosses two
+#        of them -- and ONLY where one side is a `covariates`.
+#
+# Logical `|`/`!` have no object-level meaning, and neither does `*` between two
+# plain variables: those are ordinary R operators used *inside* a pronoun
+# expression, which is where the arithmetic of the language lives.
+#
+# ONE METHOD FOR THE WHOLE FAMILY IS NOT A TIDINESS CHOICE. R's group generics
+# compare the method selected for EACH operand, and if two different ones are
+# found it warns `Incompatible methods` and falls back to the internal default,
+# which errors. So a separate `Ops.covariates` would break
+# `covariates(...) * age_shape` outright, both operands being logmu functions
+# with different methods. Reached through the shared class they resolve to this
+# one and work. (A bare list on the left is fine: it has no method of its own,
+# so this one is selected from the right-hand operand.)
 
 #' @export
 #' @noRd
 Ops.logmu_function <- function(e1, e2) {
   if (identical(.Generic, "&")) return(subset_intersect(e1, e2))
+  if (identical(.Generic, "*") && (is_covariates(e1) || is_covariates(e2))) {
+    return(covariates_multiply(e1, e2))
+  }
   stop(sprintf("Operator `%s` is not defined for logmu function objects.", .Generic),
        call. = FALSE)
 }

@@ -34,6 +34,7 @@
 #include "veil/ColumnSet.hpp"
 #include "veil/ColumnView.hpp"
 #include "veil/Engine.hpp"
+#include "veil/DisjointRecipe.hpp"
 #include "veil/FitLoop.hpp"
 #include "veil/FitRecipe.hpp"
 #include "veil/Instruction.hpp"
@@ -57,6 +58,7 @@
 #include "veil/passNarrowComparisons.hpp"
 #include "veil/passCheckSimilarityRange.hpp"
 #include "veil/passPropagateIntervals.hpp"
+#include "veil/passDistributeSquares.hpp"
 #include "veil/passFoldIndicatorSquares.hpp"
 #include "veil/passHoistFromIntegrate.hpp"
 #include "veil/passShareCommonSubtrees.hpp"
@@ -1001,6 +1003,10 @@ struct PipelineResult final
     std::vector<char> timeVarying;
     std::vector<veil::Interval> intervals;
     size_t shared = 0; // How many nodes sharing merged away, so a test can see that it fired.
+
+    // How many references `passDistributeSquares` moved. THE SOLE WITNESS to that rewrite: it is
+    // value-preserving, so no number a user sees can tell whether it fired.
+    size_t squaresDistributed = 0;
 };
 
 // Runs every tree pass, in order, over a tree that has already been ingested and given a root. One
@@ -1036,21 +1042,37 @@ PipelineResult runTreePipeline(
         veil::passPropagateIntervals(tree, constraints, objs, timeInterval);
     veil::passFoldIntervalComparisons(tree, intervals);
 
-    // Hoisting needs tags that cover every node, and narrowing has appended some since they were
-    // taken. Tagging is non-mutating and cheap, so it is simply re-run rather than maintained.
-    veil::passHoistFromIntegrate(tree, veil::passTagTimeVarying(tree));
-
-    // Sharing runs LAST of the rewriting passes, because every one above it may edit a node in place
-    // and doing that to a node with two parents corrupts the other. From here the tree is a DAG, and
-    // anything added after this must build a new node rather than change an existing one.
+    // Sharing runs LAST of the passes that EDIT A NODE IN PLACE, because doing that to a node with
+    // two parents corrupts the other. From here the tree is a DAG, and the three passes below are
+    // allowed to follow only because none of them does that: two repoint parents at new nodes, and
+    // the hoist's in-place rewrite is value-preserving, which is a different thing from changing
+    // what a shared node means.
     size_t shared = veil::passShareCommonSubtrees(tree);
 
-    // `x * x` for an indicator x becomes x, which needs sharing to have run first -- a logical weight
-    // reaches arithmetic as two separate to_double nodes, one per argument, and only sharing makes
-    // them the same node so that a square is recognisable as one. Folding it then leaves an AEV's V
-    // identical to its E, which is a redundancy that did not exist when sharing last ran, so sharing
-    // runs again. That is the concrete reason CSE is worth running more than once.
-    if (veil::passFoldIndicatorSquares(tree, constraints) > 0)
+    // EVERYTHING FROM HERE NEEDS SHARING TO HAVE RUN, and for one reason: a square is only
+    // recognisable as a square when both its operands are literally the SAME NODE. Written out, the
+    // two sides of `w * w` are separate subtrees -- a logical weight even reaches arithmetic as two
+    // separate `to_double` nodes, one per argument -- and only sharing makes them one.
+
+    // `(I phi)^2` becomes `(I*I)(phi*phi)`, which is what lets the fold below see an indicator
+    // square that is otherwise buried inside a product.
+    const size_t squaresDistributed = veil::passDistributeSquares(tree, constraints);
+
+    // `x * x` for an indicator x becomes x. That leaves an AEV's V identical to its E, and the
+    // diagonal of a fit's information matrix as `I * (phi*phi)` -- a redundancy and a hoistable
+    // factor that neither existed when sharing last ran.
+    const bool folded = veil::passFoldIndicatorSquares(tree, constraints) > 0;
+
+    // AND THE HOIST COMES AFTER BOTH, which is what banks the saving: `I` is time-invariant, so it
+    // lifts clear of the integral and what remains, `integrate(mu w phi^2)`, is the same node for
+    // every term. Hoisting needs tags covering every node and the passes above have appended some,
+    // so tagging is simply re-run -- it is non-mutating and cheap.
+    const size_t hoisted = veil::passHoistFromIntegrate(tree, veil::passTagTimeVarying(tree));
+
+    // Sharing again, because all three above create redundancies that did not exist before them --
+    // the identical integrals the hoist leaves behind most of all. That is the concrete reason CSE
+    // is worth running more than once, rather than a general principle.
+    if (folded || squaresDistributed > 0 || hoisted > 0)
     {
         shared += veil::passShareCommonSubtrees(tree);
     }
@@ -1064,7 +1086,8 @@ PipelineResult runTreePipeline(
     // BEFORE folding. A comparison that folded to a literal still reports the 0-to-1 interval it had
     // as a comparison. That is only a reporting wrinkle on a debugging entry point, but it is why
     // these are not re-derived here.
-    return PipelineResult{std::move(timeVarying), std::move(intervals), shared};
+    return PipelineResult{std::move(timeVarying), std::move(intervals), shared,
+                          squaresDistributed};
 }
 
 // What the block pipeline leaves behind for a caller to report.
@@ -1707,6 +1730,7 @@ struct AevBuild final
 {
     veil::Block block;
     size_t shared = 0;
+    size_t squaresDistributed = 0;
     BlockPipelineResult layout;
 };
 
@@ -1828,7 +1852,7 @@ AevBuild buildAev(
 
     if (block.outputs().size() != 3) { cpp11::stop("An AEV lowers to exactly three outputs."); }
 
-    return AevBuild{std::move(block), result.shared, layout};
+    return AevBuild{std::move(block), result.shared, result.squaresDistributed, layout};
 }
 
 // The overdispersion a calculation was given, checked.
@@ -1863,8 +1887,13 @@ struct FitBuild final
 {
     veil::Block block;
     size_t shared = 0;
+    size_t squaresDistributed = 0;
     BlockPipelineResult layout;
     size_t terms = 0;
+
+    // Carried on the build rather than passed separately to the run, so the flag the block was
+    // compiled with is necessarily the flag its outputs are read with.
+    bool offDiagonalsOmitted = false;
 };
 
 // Compiles ONE fit specification into a block ready to run: a log-mu expression that already carries
@@ -1887,7 +1916,11 @@ FitBuild buildFit(
     const std::vector<veil::TypeFull>& columnTypes,
     const std::vector<std::optional<veil::TypeWithConstraints>>& constraints,
     const veil::StringMapping& mapping,
-    const veil::ExposureColumns& exposure)
+    const veil::ExposureColumns& exposure,
+
+    // VERIFIED, not merely asserted -- `cpp_veil_fit_run` walks the data first. See
+    // `DisjointRecipe.hpp` for why nothing else may set this.
+    bool disjointCovariates = false)
 {
     veil::Tree tree;
     veil::ObjStore objs;
@@ -1940,7 +1973,8 @@ FitBuild buildFit(
     }
 
     const veil::FitRoots roots = veil::buildFitRecipe(
-        tree, logMu, termNodes, coefficientNodes, weightNode, similarityNode, form);
+        tree, logMu, termNodes, coefficientNodes, weightNode, similarityNode, form,
+        disjointCovariates);
     for (const veil::NodeId root : veil::fitRootOrder(roots)) { tree.addRoot(root); }
 
     std::optional<veil::ObjId> includeObj;
@@ -1974,7 +2008,7 @@ FitBuild buildFit(
     const BlockPipelineResult layout = runBlockPipeline(block);
 
     const size_t count = termNodes.size();
-    const size_t expected = 2 + 2 * count + 2 * veil::packedTriangleSize(count);
+    const size_t expected = veil::fitOutputCount(count, disjointCovariates);
     if (block.outputs().size() != expected)
     {
         cpp11::stop("A fit with %d terms lowers to exactly %d outputs, not %d.",
@@ -1982,7 +2016,73 @@ FitBuild buildFit(
                     static_cast<int>(block.outputs().size()));
     }
 
-    return FitBuild{std::move(block), result.shared, layout, count};
+    return FitBuild{std::move(block), result.shared, result.squaresDistributed, layout,
+                    count, disjointCovariates};
+}
+
+// Compiles the pre-flight walk that verifies a `disjoint()` assertion, and runs it. Returns the
+// index of the first pair that overlaps, or `pairs.size()` when the assertion holds.
+//
+// A SEPARATE BLOCK AND A SEPARATE CROSSING, and that is not an oversight. Omitting an integral is a
+// compile-time decision, so the verdict has to be in hand BEFORE the fit block is built -- there is
+// no arrangement in which one walk both proves the claim and exploits it. This is the one place in
+// the package where a second crossing is unavoidable.
+//
+// NO MORTALITY, NO WEIGHT AND NO BETA. The claim is about which individuals the terms overlap on,
+// and none of those three can change it. It does take the INCLUDE, because the claim only has to
+// hold where the fit will integrate.
+size_t runDisjointCheck(
+    cpp11::list terms,
+    SEXP include,
+    const cpp11::strings& columnNames,
+    const std::vector<veil::TypeFull>& columnTypes,
+    const std::vector<std::optional<veil::TypeWithConstraints>>& constraints,
+    const veil::StringMapping& mapping,
+    const veil::ExposureColumns& exposure,
+    const std::vector<const veil::ColumnView*>& views,
+    size_t records,
+    size_t threads,
+    std::vector<double>& totals)
+{
+    const size_t count = static_cast<size_t>(terms.size());
+    const size_t pairs = veil::disjointCheckPairs(count).size();
+    if (pairs == 0) { return 0; }
+
+    veil::Tree tree;
+    veil::ObjStore objs;
+
+    std::vector<veil::NodeId> termNodes;
+    termNodes.reserve(count);
+    for (R_xlen_t i = 0; i < terms.size(); ++i)
+    {
+        termNodes.push_back(
+            ingest(tree, objs, cpp11::as_cpp<cpp11::list>(VECTOR_ELT(SEXP(terms), i)), columnNames));
+    }
+
+    for (const veil::NodeId root : veil::buildDisjointCheckRecipe(tree, termNodes))
+    {
+        tree.addRoot(root);
+    }
+
+    std::optional<veil::ObjId> includeObj;
+    if (include != R_NilValue)
+    {
+        if (!Rf_inherits(include, "include")) { cpp11::stop("`include` must be an `include` object."); }
+        includeObj = readInclude(tree, objs, include, columnNames);
+    }
+
+    const PipelineResult result = runTreePipeline(tree, objs, columnTypes, constraints, mapping,
+                                                  exposureTimeInterval(exposure, constraints));
+    veil::Block block =
+        veil::passLowerToBlock(tree, objs, result.timeVarying, exposure, includeObj);
+    runBlockPipeline(block);
+
+    const veil::CalculationResult calculation =
+        veil::runCalculation(block, views, records, false, threads, userInterruptIsPending);
+    if (calculation.interrupted) { cpp11::stop("The veil calculation was interrupted."); }
+
+    totals = calculation.totals;
+    return veil::firstDisjointViolation(calculation.totals, pairs);
 }
 
 [[cpp11::register]]
@@ -2064,6 +2164,7 @@ cpp11::list cpp_veil_aev(
         "monikers"_nm = monikers,
         "instruction_count"_nm = static_cast<int>(block.body().size()),
         "shared_nodes"_nm = static_cast<int>(built.shared),
+        "squares_distributed"_nm = static_cast<int>(built.squaresDistributed),
         "vector_operand_count"_nm = static_cast<int>(layout.vectorOperands),
         "buffer_count"_nm = static_cast<int>(layout.buffers),
         "death_only_count"_nm = static_cast<int>(layout.deathOnly),
@@ -2217,6 +2318,7 @@ cpp11::list cpp_veil_fit(
         "output_count"_nm = static_cast<int>(outputCount),
         "instruction_count"_nm = static_cast<int>(block.body().size()),
         "shared_nodes"_nm = static_cast<int>(built.shared),
+        "squares_distributed"_nm = static_cast<int>(built.squaresDistributed),
         "buffer_count"_nm = static_cast<int>(built.layout.buffers),
         "threads_used"_nm = static_cast<int>(veil::resolveThreadCount(threadCount)),
         "runs"_nm = runs,
@@ -2249,6 +2351,7 @@ cpp11::list cpp_veil_fit_run(
     double max_halvings,
     double overdispersion,
     double z_scale,
+    bool disjoint,
     int threads)
 {
     const cpp11::strings columnNames = columnNamesOf(columns);
@@ -2275,11 +2378,39 @@ cpp11::list cpp_veil_fit_run(
         cpp11::stop("`armijo` must lie strictly between 0 and 0.5.");
     }
 
-    FitBuild built = buildFit(mortality, terms, weight, val_similarity, val_distance, include,
-                              columnNames, columnTypes, constraints, encoding.mapping, exposure);
-
     const R_xlen_t records = columns.size() == 0 ? 0 : Rf_xlength(VECTOR_ELT(SEXP(columns), 0));
     const std::vector<const veil::ColumnView*> views = viewsByColumnId(set, columnNames);
+
+    // THE PRE-FLIGHT WALK COMES FIRST, and it has to: the fit block is compiled with the
+    // off-diagonal integrals left out, which is a decision taken before any record is read.
+    //
+    // A FALSE ASSERTION IS AN ERROR, NOT A QUIET FALLBACK TO THE FULL TRIANGLE. Computing the right
+    // answer anyway would leave the user believing something about their data that is not true, and
+    // the whole reason they wrote `disjoint()` is that they thought they knew.
+    if (disjoint)
+    {
+        std::vector<double> checkTotals;
+        const auto pairs = veil::disjointCheckPairs(static_cast<size_t>(terms.size()));
+        const size_t bad = runDisjointCheck(terms, include, columnNames, columnTypes, constraints,
+                                            encoding.mapping, exposure, views,
+                                            static_cast<size_t>(records),
+                                            static_cast<size_t>(threads), checkTotals);
+        if (bad < pairs.size())
+        {
+            // ONE-BASED, because the terms are numbered the way the user wrote them. The total is
+            // exposure-weighted years of overlap rather than a head count: that is what the
+            // reduction yields, and reporting the number we have beats computing a second one.
+            cpp11::stop("`disjoint()` says no individual is in more than one of these terms, but "
+                        "terms %d and %d overlap over %g years of exposure.",
+                        static_cast<int>(pairs[bad].first + 1),
+                        static_cast<int>(pairs[bad].second + 1),
+                        checkTotals[bad]);
+        }
+    }
+
+    FitBuild built = buildFit(mortality, terms, weight, val_similarity, val_distance, include,
+                              columnNames, columnTypes, constraints, encoding.mapping, exposure,
+                              disjoint);
 
     veil::FitControl control;
     control.start.assign(start.begin(), start.end());
@@ -2291,7 +2422,7 @@ cpp11::list cpp_veil_fit_run(
     control.zScale = z_scale;
 
     const veil::FitResult fit = veil::runFit(built.block, views, static_cast<size_t>(records),
-                                             built.terms, control,
+                                             built.terms, built.offDiagonalsOmitted, control,
                                              static_cast<size_t>(threads), userInterruptIsPending);
 
     if (fit.status == veil::FitStatus::Interrupted)
@@ -2354,6 +2485,11 @@ cpp11::list cpp_veil_fit_run(
         "factor_status"_nm = factorStatus,
         "dependency"_nm = asDoubles(fit.dependency),
         "term_count"_nm = static_cast<int>(built.terms),
+
+        // A WITNESS FOR THE OMISSION, because nothing numeric can see it: a verified assertion gives
+        // the same answers by a shorter route, so only the shape of the block says it happened.
+        "off_diagonals_omitted"_nm = built.offDiagonalsOmitted,
+        "output_count"_nm = static_cast<int>(built.block.outputs().size()),
         "parameter_count"_nm = static_cast<int>(built.block.parameters().size()),
     });
 }

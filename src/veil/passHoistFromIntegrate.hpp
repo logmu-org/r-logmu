@@ -75,6 +75,30 @@ inline size_t passHoistFromIntegrate(Tree& tree, const std::vector<char>& timeVa
         return type.has_value() && type->type == Type::Double;
     };
 
+    // The invariant operand of a product, or `invalidNodeId` when there is not exactly one. Used
+    // only where the walk would otherwise stop, to rotate that operand out to where it can be
+    // peeled. Requiring the OTHER operand to vary is what stops this from rotating a product that
+    // the branches above would have peeled whole.
+    auto rotatableFactor = [&](NodeId id) -> NodeId {
+        const Node& node = tree.at(id);
+        if (!isCall(node)) { return invalidNodeId; }
+
+        const CallPayload& call = std::get<CallPayload>(node.payload);
+        if (call.op != Op::Mul || call.args.size() != 2) { return invalidNodeId; }
+
+        const NodeId left = call.args[0];
+        const NodeId right = call.args[1];
+        if (isInvariantNumber(left) && right < timeVarying.size() && timeVarying[right] != 0)
+        {
+            return left;
+        }
+        if (isInvariantNumber(right) && left < timeVarying.size() && timeVarying[left] != 0)
+        {
+            return right;
+        }
+        return invalidNodeId;
+    };
+
     for (NodeId id = 0; id < static_cast<NodeId>(originalCount); ++id)
     {
         {
@@ -111,6 +135,31 @@ inline size_t passHoistFromIntegrate(Tree& tree, const std::vector<char>& timeVa
             {
                 factors.push_back(right);
                 inner = left;
+                continue;
+            }
+
+            // NEITHER SIDE IS INVARIANT, WHICH IS WHERE THIS WALK USED TO STOP -- and it stopped one
+            // level short of the commonest covariate shape there is. An indicator times an age curve
+            // gives a diagonal integrand of `((I*I) * (phi*phi)) * mu`, where BOTH sides of the
+            // outer product vary and the invariant `I*I` is nested inside the left one.
+            //
+            // Rotating `(A * B) * C` to `A * (B * C)` puts that factor where the next turn of the
+            // loop can peel it. Multiplication associates, so this is the same value by a different
+            // grouping -- the same kind of step, and the same rounding caveat, as the peel itself.
+            //
+            // IT CANNOT SPLIT A SQUARE, which matters because `passFoldIndicatorSquares` can only
+            // see one that is still a single node. A square's two operands are the same node, so
+            // either both are invariant -- in which case the whole square is, and the branches above
+            // have already peeled it whole -- or neither is, and there is nothing here to rotate.
+            const NodeId nested = rotatableFactor(left);
+            if (nested != invalidNodeId)
+            {
+                const CallPayload& inner_call = std::get<CallPayload>(tree.at(left).payload);
+                const NodeId keep = inner_call.args[0] == nested ? inner_call.args[1]
+                                                                 : inner_call.args[0];
+                factors.push_back(nested);
+                inner = tree.buildCall(Op::Mul, {keep, right});
+                tree.at(inner).type.emplace(TypeFull::createDouble());
                 continue;
             }
             break;

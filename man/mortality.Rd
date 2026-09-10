@@ -66,6 +66,7 @@ These are the core types of mortality object:\tabular{lll}{
    Type \tab \strong{datey} function \tab Notes \cr
    Constant \tab \code{\link[=mortality_const]{mortality_const()}} \tab  \cr
    Age-period \tab \code{\link[=mortality_table]{mortality_table()}} \tab Mortality rates that are smooth at an annual scale \cr
+   Gompertz \tab \code{\link[=gompertz_mortality]{gompertz_mortality()}} \tab Log mu linear in age and in time \cr
    Model \tab TBC \tab  \cr
 }
 

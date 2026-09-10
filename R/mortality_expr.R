@@ -26,20 +26,30 @@
 #' mortality(base + 0.05)   # scale mu up by exp(0.05)
 #' @export
 mortality <- function(expr) {
-  ast <- it_capture(substitute(expr), parent.frame())
+  mortality_from_ast(it_capture(substitute(expr), parent.frame()))
+}
 
+# The body of `mortality()`, shared with `model()` and with the mortality a
+# `fit()` hands back. All three build a mortality from an AST captured
+# elsewhere, so there is one rule about what may appear in one rather than three
+# that have to agree.
+mortality_from_ast <- function(ast) {
   # A bare reference to a concrete mortality needs no wrapping.
   if (identical(ast$kind, "obj") && is_mortality(ast$value)) return(ast$value)
 
-  # Every concept object referenced must itself be a mortality.
+  ensure_mortality_leaves(ast)
+  new_mortality_expr(ast)
+}
+
+# Every concept object referenced must itself be a mortality.
+ensure_mortality_leaves <- function(ast) {
   for (leaf in it_obj_leaves(ast)) {
     if (!is_mortality(leaf)) {
       stop("A `mortality` expression may only reference `mortality` objects; got a `",
            class(leaf)[[1L]], "`.", call. = FALSE)
     }
   }
-
-  new_mortality_expr(ast)
+  invisible(ast)
 }
 
 new_mortality_expr <- function(ast) {

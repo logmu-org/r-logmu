@@ -148,8 +148,8 @@ cpp_veil_fit <- function(mortality, terms, betas, weight, val_similarity, val_di
   .Call(`_logmu_cpp_veil_fit`, mortality, terms, betas, weight, val_similarity, val_distance, columns, time_scale, include, keep_contributions, threads)
 }
 
-cpp_veil_fit_run <- function(mortality, terms, weight, val_similarity, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, threads) {
-  .Call(`_logmu_cpp_veil_fit_run`, mortality, terms, weight, val_similarity, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, threads)
+cpp_veil_fit_run <- function(mortality, terms, weight, val_similarity, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, disjoint, threads) {
+  .Call(`_logmu_cpp_veil_fit_run`, mortality, terms, weight, val_similarity, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, disjoint, threads)
 }
 
 cpp_veil_run <- function(specs, columns, time_scale, keep_contributions, threads) {

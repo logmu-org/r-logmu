@@ -38,6 +38,7 @@ mortality_prophazard_class <- c("mortality_prophazard", "mortality", "logmu_func
 #' |:----------|:------------------|:---
 #' |Constant   |[mortality_const()]|
 #' |Age-period |[mortality_table()]|Mortality rates that are smooth at an annual scale|
+#' |Gompertz   |[gompertz_mortality()]|Log mu linear in age and in time|
 #' |Model      |TBC|
 #'
 #' You can build on these:

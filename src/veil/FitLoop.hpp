@@ -132,10 +132,27 @@ struct FitAccumulation final
     double rawLogLikelihood() const noexcept { return this->actual - this->expected; }
 };
 
-inline FitAccumulation unpackFit(const std::vector<double>& totals, size_t terms)
+// Spreads the k diagonal outputs of a disjoint block back over a full packed triangle, filling the
+// off-diagonals with exact zeros -- which is what they are, having been verified so before the block
+// was compiled. Everything downstream then sees the shape it always saw, so the Cholesky, the
+// variance and the penalty need to know nothing about any of this.
+inline std::vector<double> spreadDiagonal(const double* diagonal, size_t terms)
 {
+    std::vector<double> packed(packedTriangleSize(terms), 0.0);
+    for (size_t j = 0; j < terms; ++j) { packed[packedTriangleIndex(j, j, terms)] = diagonal[j]; }
+    return packed;
+}
+
+inline FitAccumulation unpackFit(const std::vector<double>& totals, size_t terms,
+                                 bool offDiagonalsOmitted)
+{
+    // THE LENGTH CHECK IS THE GUARD AGAINST A MISMATCHED FLAG. A block compiled with the
+    // off-diagonals omitted and unpacked without the flag -- or the reverse -- would otherwise read
+    // the second moment as the information and be silently wrong, so the sizes are made to disagree
+    // rather than left to line up by luck.
     const size_t triangle = packedTriangleSize(terms);
-    if (totals.size() != 2 + 2 * terms + 2 * triangle)
+    const size_t carried = offDiagonalsOmitted ? terms : triangle;
+    if (totals.size() != fitOutputCount(terms, offDiagonalsOmitted))
     {
         throw std::runtime_error("veil: a fit block produced the wrong number of outputs.");
     }
@@ -151,10 +168,17 @@ inline FitAccumulation unpackFit(const std::vector<double>& totals, size_t terms
     }
 
     const size_t informationAt = 2 + 2 * terms;
+    if (offDiagonalsOmitted)
+    {
+        out.information = spreadDiagonal(totals.data() + informationAt, terms);
+        out.secondMoment = spreadDiagonal(totals.data() + informationAt + carried, terms);
+        return out;
+    }
+
     out.information.assign(totals.begin() + static_cast<std::ptrdiff_t>(informationAt),
-                           totals.begin() + static_cast<std::ptrdiff_t>(informationAt + triangle));
-    out.secondMoment.assign(totals.begin() + static_cast<std::ptrdiff_t>(informationAt + triangle),
-                            totals.begin() + static_cast<std::ptrdiff_t>(informationAt + 2 * triangle));
+                           totals.begin() + static_cast<std::ptrdiff_t>(informationAt + carried));
+    out.secondMoment.assign(totals.begin() + static_cast<std::ptrdiff_t>(informationAt + carried),
+                            totals.begin() + static_cast<std::ptrdiff_t>(informationAt + 2 * carried));
     return out;
 }
 
@@ -176,6 +200,10 @@ inline FitResult runFit(
     const std::vector<const ColumnView*>& columns,
     size_t records,
     size_t terms,
+
+    // How the BLOCK was built, not a choice the loop makes: true when the covariates were verified
+    // mutually exclusive and the block therefore carries only the diagonal of each triangle.
+    bool offDiagonalsOmitted,
     const FitControl& control,
     size_t threads,
     const std::function<bool()>& interrupted)
@@ -215,7 +243,7 @@ inline FitResult runFit(
             return detail::FitAccumulation{};
         }
         ++result.evaluations;
-        return detail::unpackFit(calculation.totals, terms);
+        return detail::unpackFit(calculation.totals, terms, offDiagonalsOmitted);
     };
 
     detail::FitAccumulation current = walk(result.beta);
