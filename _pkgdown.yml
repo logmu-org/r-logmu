@@ -100,6 +100,8 @@ reference:
   - mortality
   - mortality_const
   - mortality_table
+  - gompertz_mortality
+  - default_mortality
 - title: Pronouns `.i` and `.t`
   contents:
   - pronoun_expressions
@@ -121,6 +123,12 @@ reference:
   contents:
   - aev_plot
   - theme_aev
+- title: Fitting and comparing models
+  contents:
+  - model
+  - covariates
+  - fit
+  - compare_models
 - title: Running several analyses at once
   contents:
   - batch

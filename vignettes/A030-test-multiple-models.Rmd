@@ -9,4 +9,214 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-TODO
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(logmu)
+```
+
+`fit()` calibrates one model. It cannot tell you whether that model was worth
+having, because a model with more parameters always fits the data it was
+calibrated on better than a model with fewer. `compare_models()` fits several
+candidates and ranks them on penalised log-likelihood, which is Akaike's
+information criterion with the clutter removed. The reasoning behind it is in
+[Suddenly AIC](B050-suddenly-aic.html); this article is about running it.
+
+## A portfolio to work on
+
+There is no data in the package, so here is some, generated from a mortality we
+will pretend not to know. Deaths are placed by inverting the integrated hazard,
+which for a Gompertz $\mu$ can be done in closed form, so this is a sample from
+the model rather than an approximation to one.
+
+```{r data}
+set.seed(20260910)
+
+lives <- 4000
+age_at_start <- sample(55:89, lives, replace = TRUE)
+male <- runif(lives) < 0.6
+
+# The truth, which the candidates below have to find: a level, an age slope
+# steeper than the reference table's, and a loading on males.
+log_mu_at_start <- -12.9 + 0.12 * age_at_start + 0.4 * male
+
+exposure <- 5
+target <- -log(runif(lives))
+death_after <- log1p(0.12 * target / exp(log_mu_at_start)) / 0.12
+died <- death_after < exposure
+
+portfolio <- exp_data(
+  list(
+    birth     = datey::datey(2015 - age_at_start),
+    male      = male,
+    pension   = round(exp(rnorm(lives, log(12000), 0.7))),
+    E2R_start = datey::datey(rep(2015, lives)),
+    E2R_end   = datey::datey(2015 + pmin(death_after, exposure)),
+    E2R_died  = died
+  ),
+  exp_start = datey::datey(2015),
+  exp_end   = datey::datey(2020)
+)
+
+sum(died)
+```
+
+## Four candidates
+
+Every candidate is a `model()`: a reference mortality, plus the covariates whose
+coefficients are to be estimated. A `model` holds nothing else. The data, the
+population, the weight and the overdispersion are arguments of the comparison,
+not properties of a candidate, and that is what makes candidates comparable
+rather than a rule you have to remember.
+
+The reference here is a Gompertz curve with its time trend switched off, so
+anything the candidates find is theirs.
+
+```{r candidates}
+reference <- gompertz_mortality(slope_t = 0)
+
+candidates <- list(
+  level    = model(reference, covariates(level = 1)),
+  sex      = model(reference, covariates(male = .i$male, female = !.i$male)),
+  age      = model(reference, covariates(level = 1, age = .x - 75)),
+  sex_age  = model(reference, covariates(male = .i$male, female = !.i$male,
+                                         age = .x - 75))
+)
+```
+
+The `sex` and `sex_age` candidates split the population into two indicators
+that cannot both be one. Saying so with `disjoint()` instead of `covariates()`
+lets the engine leave the off-diagonal integrals out altogether, which is worth
+having once there are more than a handful of groups.
+
+## The comparison
+
+```{r compare}
+comparison <- compare_models(portfolio, candidates,
+                             overdispersion = 1)
+comparison
+```
+
+Larger $L_\text{P}$ is better, so the table is ordered best first. The header
+describes the data and the scale everything below it is quoted in.
+
+The two likelihood columns have the best candidate's $L_\text{P}$ taken off them,
+so the winner reads 0 and everyone else is negative. Both are shifted by the same
+constant, which is why $L - L_\text{P} = p$ still holds row by row: the
+arithmetic can be checked on the face of the table. `$table` keeps the unshifted
+numbers.
+
+Note the `p` column against the `k` beside it: the penalty is exactly the
+parameter count. That is not a coincidence and it is not hard-wired -- the
+penalty is
+$p = Z^{-1}\operatorname{tr}(\mathbf{J}\mathbf{I}^{-1})$, and with no weight
+$w^2 = w$ makes it collapse to $\dim(\beta)$. So here, and only here,
+$L_\text{P}$ is exactly $-\text{AIC}/2$ and a shortfall of 1 is one parameter's
+worth. Anything under about 1 is not worth acting on.
+
+The winner is a `fit` like any other:
+
+```{r best}
+best <- best_fit(comparison)
+coef(best)
+sqrt(diag(vcov(best)))
+```
+
+The two sex coefficients differ by 0.399, against the 0.4 that went into the
+data. The age term comes out at 0.0149 where 0.02 went in, about one standard
+error short -- the level and the slope are estimated jointly and should be read
+that way, not one at a time.
+
+The fitted model is a `mortality`, so `best$mortality` can be handed straight to
+`aev()`, or used as the `ref_mortality` of a further model.
+
+## Weights change what the penalty means
+
+Weight the log-likelihood by pension and the ranking still works, but two things
+change.
+
+First, $Z$ is no longer 1, so it has to be measured. It is measured on
+`test_mortality`, which defaults to `default_mortality()`, and it has to be the
+same for every candidate or the penalised log-likelihoods are on different
+scales and the comparison means nothing. `compare_models()` measures it a single
+time and hands the same value to every candidate, whatever the reference
+mortalities of the candidates themselves happen to be.
+
+Nominate a different test mortality if you have a reason to. Only its age slope
+materially matters, and a shared choice is worth more than a good one, so the
+default is usually the right answer. Where you already have the number, pass
+`Z` instead and no measurement happens at all.
+
+Second, $p$ stops being a count.
+
+```{r weighted}
+weighted <- compare_models(portfolio, candidates,
+                           weight = .i$pension,
+                           test_mortality = reference,
+                           overdispersion = 1)
+weighted$table[, c("k", "penalty", "penalised_log_likelihood")]
+```
+
+Mostly it stops being a count. `level` still costs exactly 1, and that is not
+rounding: with a single constant covariate $\mathbf{J}\mathbf{I}^{-1}$ is the
+scalar $\mathrm{E}w^2/\mathrm{E}w$, which is $Z$ itself, so $p = Z^{-1}Z = 1$
+however the data is weighted. The others sit a little above their term counts,
+three parameters costing 3.03.
+
+The interesting change is in the spread. `sex_age` now leads `sex` by 0.2 where on
+lives it led by 4.3: weighting concentrates the data, so there is far less
+evidence for the age term once the log-likelihood follows the money. The ranking
+survives. What you no longer get for free is the calibration -- a shortfall of 1
+is no longer one parameter's worth, and
+[Suddenly AIC](B050-suddenly-aic.html#just-weight-a-moment) sets out why.
+
+## Overdispersion favours simpler models
+
+Mortality data is overdispersed, always, and `overdispersion` has no default for
+that reason. It is not a nuisance in this calculation: it changes the answer, and
+in the right direction.
+
+$L$ carries $\Omega^{-1}$ and the penalty does not, because the $\Omega^{-1}$ in
+$\mathbf{I}$ and $\mathbf{J}$ cancels in $\mathbf{J}\mathbf{I}^{-1}$. So raising
+$\Omega$ shrinks the advantage a richer model has while leaving what its extra
+parameters cost untouched.
+
+```{r overdispersion}
+behind <- function(omega) {
+  table <- compare_models(portfolio, candidates, overdispersion = omega)$table
+  max(table$penalised_log_likelihood) - table["level", "penalised_log_likelihood"]
+}
+
+c(omega_1 = behind(1), omega_5 = behind(5), omega_25 = behind(25))
+```
+
+At $\Omega = 1$ the level-only model is 17 behind. At 5 it is under 2. At 25 its
+shortfall is zero, meaning it has won outright -- at that much overdispersion the
+evidence for a sex split is not there, and a single level is all the data
+supports. This is the quasi-AIC, and it is why $\Omega$ deserves an argument
+rather than a default.
+
+## When a candidate cannot be fitted
+
+`fit()` raises rather than return a number nobody should use. A comparison
+cannot afford to: one hopeless candidate out of fifty must not take the other
+forty-nine with it. So a candidate that fails is reported in place -- its row
+carries the status and `NA`, it sorts last, and the diagnosis `fit()` would have
+raised is kept.
+
+```{r failure}
+broken <- c(candidates,
+            list(collinear = model(reference,
+                                   covariates(level = 1, again = 1))))
+
+comparison <- compare_models(portfolio, broken, overdispersion = 1)
+comparison$failures[["collinear"]]
+```
+
+The warning names the failures as they happen, so a candidate cannot go missing
+from a ranking quietly.

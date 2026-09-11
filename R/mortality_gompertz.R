@@ -109,3 +109,48 @@ gompertz_mortality <- function(
 
   structure(new_mortality_expr(ast), name = name)
 }
+
+# ============================================================================
+# default_mortality -- the one logmu falls back on
+# ============================================================================
+#
+# DEFINED AS `gompertz_mortality()` RATHER THAN BY REPEATING ITS NUMBERS, so the
+# two cannot drift apart: there is one set of parameters and this names it. What
+# a test has to pin is therefore not the agreement between them, which is
+# structural, but the VALUES themselves against the specification, so that
+# changing the Gompertz defaults trips something.
+
+#' The default mortality
+#'
+#' @description
+#' The general-purpose mortality **logmu** falls back on where one is needed and
+#' none was given, and a reasonable thing to reach for whenever a broadly
+#' sensible pensioner basis will do:
+#'
+#' \deqn{\log\mu_{xt} = -3.8 + 0.1\,(x - 75) - 0.01\,(t - 2020)}
+#'
+#' It sits about midway between S4PMA and S4PFA at age 75, with a shallower
+#' slope to allow for higher mortality at younger ages and for plateauing at
+#' higher ones.
+#'
+#' @details
+#' Its main use is as the test mortality that sets the \eqn{Z} scale of a
+#' log-likelihood, which is why [fit()] and [compare_models()] default
+#' `test_mortality` to it. Only `slope_x` materially matters there, so a single
+#' fixed choice is enough and a shared one is better than a good one: \eqn{Z} is
+#' the yardstick that makes a difference of one in the penalised log-likelihood
+#' mean one parameter's worth, so two analyses that used different test
+#' mortalities are not on one scale.
+#'
+#' It takes no arguments deliberately. Vary it and it is no longer the default
+#' mortality but a Gompertz law of your own, which is what
+#' [gompertz_mortality()] is for.
+#'
+#' @returns A `mortality`.
+#' @examples
+#' default_mortality()
+#'
+#' # It is exactly the no-argument Gompertz.
+#' identical(default_mortality(), gompertz_mortality())
+#' @export
+default_mortality <- function() gompertz_mortality()

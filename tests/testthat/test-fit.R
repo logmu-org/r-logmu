@@ -66,8 +66,8 @@ intercept_model <- model(ref_mortality = reference, covariates = covariates(leve
 #
 # NOT IN UNITS OF THE REPORTED STANDARD ERROR, which is a different quantity
 # once the weight is not an indicator.
-beta_bound <- function(A, L_tolerance = 1e-6, overdispersion = 1, z = 1) {
-  sqrt(2 * L_tolerance * overdispersion^2 * z / A)
+beta_bound <- function(A, L_tolerance = 1e-6, overdispersion = 1, Z = 1) {
+  sqrt(2 * L_tolerance * overdispersion^2 * Z / A)
 }
 
 # ---- model() ---------------------------------------------------------------
@@ -279,26 +279,98 @@ test_that("disjointness survives multiplication by a shape, and is still verifie
 
 # ---- the Z scale -----------------------------------------------------------
 
-test_that("Z is one, with no run at all, when the weight is an indicator", {
-  # `w^2 = w` gives `Z = Ew^2/Ew = 1` exactly.
-  bare <- fit(fit_data, intercept_model, settings = basis)
-  expect_identical(bare$z, 1)
+test_that("the Z scale is one where `w^2 = w` can be shown", {
+  # No weight, the literal 1, and an expression an operator has forced to be
+  # logical. All three give `Z = Ew^2/Ew = 1` exactly.
+  expect_identical(fit(fit_data, intercept_model, settings = basis)$Z, 1)
+  expect_identical(fit(fit_data, intercept_model, weight = 1, settings = basis)$Z, 1)
+  expect_identical(
+    fit(fit_data, intercept_model, weight = .i$pension > 10000, settings = basis)$Z,
+    1
+  )
 
-  # ONLY WHAT R CAN PROVE COUNTS. A comparison is logical by construction, so
-  # it is seen; a bare `.i$male` is a column whose type is unknown until the
-  # data arrives, and it is not.
-  indicated <- fit(fit_data, intercept_model, weight = .i$pension > 10000,
-                   settings = basis)
-  expect_identical(indicated$z, 1)
-
-  expect_error(fit(fit_data, intercept_model, weight = .i$male, settings = basis),
-               "`z` is required when the weight is not an indicator")
+  # A bare logical column is an indicator in fact and unprovable from the
+  # expression, because a column's type is unknown until the data arrives. So it
+  # is measured rather than assumed -- and the measurement gives 1 anyway.
+  expect_equal(fit(fit_data, intercept_model, weight = .i$male, settings = basis)$Z, 1)
 })
 
-test_that("Z is required, not assumed, once the weight is an amount", {
+test_that("a fit makes exactly one pass outside the iteration, whatever the weight", {
+  # ONE `cpp_veil_run()`, always: the header's population numbers and the
+  # test-mortality A/E are two blocks of it. Z is then read from that run rather
+  # than costing a run of its own, so the weighted case pays what it always did
+  # and the unweighted case pays one pass for a header.
+  count <- function(...) {
+    runs <- 0L
+    original <- cpp_veil_run
+    local_mocked_bindings(
+      cpp_veil_run = function(...) {
+        runs <<- runs + 1L
+        original(...)
+      }
+    )
+    fit(fit_data, intercept_model, settings = basis, ...)
+    runs
+  }
+
+  expect_identical(count(), 1L)
+  expect_identical(count(weight = 1), 1L)
+  expect_identical(count(weight = .i$pension), 1L)
+  expect_identical(count(Z = 3, weight = .i$pension), 1L)
+})
+
+test_that("the engine makes `Ew^2 = Ew` exactly where `w^2 = w`", {
+  # THIS IS WHAT THE `weight_squares_to_itself()` SHORTCUT NOW RESTS ON, and it is
+  # the engine's property rather than R's: `Ew` and `Ew^2` accumulate identical
+  # per-record values in the same order, so their ratio is 1 to the bit and not
+  # merely to a tolerance. The shortcut used to earn its place by avoiding a pass;
+  # now that the diagnostics run regardless, the only thing left for it to protect
+  # is exactness -- and IF THIS TEST EVER FAILS the shortcut is load-bearing again.
+  columns <- exp_data_columns(fit_data)
+  clicks <- time_scale_clicks(1 / 4)
+  test_ast <- it_obj(default_mortality())
+
+  measured <- function(weight_ast) {
+    d <- fit_diagnostics(test_ast, weight_ast, NULL, columns, clicks, 1L)
+    d$Ew2 / d$Ew
+  }
+
+  expect_identical(measured(NULL), 1)
+  expect_identical(measured(it_capture(quote(1), environment())), 1)
+  expect_identical(measured(it_capture(quote(.i$pension > 10000), environment())), 1)
+
+  # The control: with an amount weight it is nowhere near 1, so the comparison
+  # above is not vacuous.
+  expect_gt(measured(it_capture(quote(.i$pension), environment())), 100)
+})
+
+test_that("an amount weight uses the default mortality rather than refusing", {
+  # It used to be an error. The default is fixed and shared, which is what Z
+  # needs -- one yardstick beats a good one.
+  f <- fit(fit_data, intercept_model, weight = .i$pension, settings = basis)
+  named <- fit(fit_data, intercept_model, weight = .i$pension,
+               test_mortality = default_mortality(), settings = basis)
+
+  # THE SIGNATURE DEFAULT IS NEVER EVALUATED, so the default is named twice --
+  # once for `?fit` and once in the code. This is what stops them drifting.
+  expect_identical(f, named)
+  expect_false(isTRUE(all.equal(f$Z, 1)))
+})
+
+test_that("an explicit Z wins even where one would have been provable", {
+  # THE ORDER OF THE TWO CHECKS. `Z` is read before the `w^2 = w` shortcut,
+  # so a caller forcing a common scale across a set of runs gets the number they
+  # asked for rather than the 1 this particular run could have proved.
+  f <- fit(fit_data, intercept_model, Z = 4, settings = basis)
+  expect_identical(f$Z, 4)
+  expect_equal(f$penalty, 1 / 4)
+})
+
+test_that("a test mortality and an explicit Z are alternatives, not a pair", {
   expect_error(
-    fit(fit_data, intercept_model, weight = .i$pension, settings = basis),
-    "`z` is required when the weight is not an indicator"
+    fit(fit_data, intercept_model, weight = .i$pension,
+        test_mortality = gompertz_mortality(), Z = 2, settings = basis),
+    "Give either `test_mortality` or `Z`, not both"
   )
 })
 
@@ -313,46 +385,47 @@ test_that("Z from a test mortality is V/E on a run pinned at overdispersion one"
                settings = settings(overdispersion = 1))
   expected <- scale$V / scale$E
 
-  f <- fit(fit_data, intercept_model, weight = .i$pension, z = test_mortality,
+  f <- fit(fit_data, intercept_model, weight = .i$pension, test_mortality = test_mortality,
            settings = settings(overdispersion = 3))
 
-  expect_equal(f$z, expected)
+  expect_equal(f$Z, expected)
 
   # Not the same as reading it off a run at the fit's own overdispersion.
   wrong <- aev(fit_data, mortality = test_mortality, weight = .i$pension,
                settings = settings(overdispersion = 3))
-  expect_false(isTRUE(all.equal(f$z, wrong$V / wrong$E)))
+  expect_false(isTRUE(all.equal(f$Z, wrong$V / wrong$E)))
 })
 
 test_that("Z as a number is taken as given", {
-  f <- fit(fit_data, intercept_model, weight = .i$pension, z = 2500, settings = basis)
-  expect_identical(f$z, 2500)
+  f <- fit(fit_data, intercept_model, weight = .i$pension, Z = 2500, settings = basis)
+  expect_identical(f$Z, 2500)
 })
 
 test_that("Z rescales L and p but never beta", {
   # L = Z^-1 L*, and p = Z^-1 tr(J I^-1), so both scale together and the
   # argument of the maximum does not move at all.
-  one <- fit(fit_data, intercept_model, weight = .i$pension, z = 1000, settings = basis)
-  two <- fit(fit_data, intercept_model, weight = .i$pension, z = 2000, settings = basis)
+  one <- fit(fit_data, intercept_model, weight = .i$pension, Z = 1000, settings = basis)
+  two <- fit(fit_data, intercept_model, weight = .i$pension, Z = 2000, settings = basis)
 
   # Z scales the convergence test as well, so the two stop at slightly different
   # points. Each is checked against the analytic maximum within its own bound.
   weighted <- aev(fit_data, mortality = reference, weight = .i$pension, settings = basis)
   target <- log(weighted$A / weighted$E)
-  expect_lt(abs(unname(one$beta) - target), beta_bound(weighted$A, z = 1000))
-  expect_lt(abs(unname(two$beta) - target), beta_bound(weighted$A, z = 2000))
+  expect_lt(abs(unname(one$beta) - target), beta_bound(weighted$A, Z = 1000))
+  expect_lt(abs(unname(two$beta) - target), beta_bound(weighted$A, Z = 2000))
 
   expect_equal(two$log_likelihood, one$log_likelihood / 2, tolerance = 1e-6)
   expect_equal(two$penalty, one$penalty / 2, tolerance = 1e-6)
 })
 
 test_that("a Z that is not a usable scale is refused", {
-  expect_error(fit(fit_data, intercept_model, z = 0, settings = basis),
-               "single positive finite number")
-  expect_error(fit(fit_data, intercept_model, z = -1, settings = basis),
-               "single positive finite number")
-  expect_error(fit(fit_data, intercept_model, z = c(1, 2), settings = basis),
-               "did not fold to a single constant")
+  # `Z` is an ordinary value rather than a pronoun expression, so all three
+  # are now caught by the same check rather than the last one falling to the
+  # parser.
+  for (bad in list(0, -1, c(1, 2), NA_real_, Inf, "1")) {
+    expect_error(fit(fit_data, intercept_model, Z = bad, settings = basis),
+                 "single positive finite number")
+  }
 })
 
 # ---- overdispersion --------------------------------------------------------
@@ -500,9 +573,13 @@ test_that("a fit prints its estimates, its scale and its cost", {
   expect_match(printed, "<fit: 1 term")
   expect_match(printed, "estimate")
   expect_match(printed, "std_error")
-  expect_match(printed, "penalised")
-  # Z is reported because it is the unit the numbers are quoted in.
-  expect_match(printed, "\\bZ 1\\b")
+  # A lone fit shows the three likelihood numbers unshifted, with `k`.
+  expect_match(printed, "L -[0-9.]+   p [0-9.]+   L_P -[0-9.]+   k 1")
+  # The Z scale is reported because it is the unit the numbers are quoted in.
+  expect_match(printed, "Z 1")
+  # And the header, which is shared with a comparison.
+  expect_match(printed, "deaths, ")
+  expect_match(printed, "test mortality  default_mortality")
 })
 
 test_that("a model prints its reference and its terms", {

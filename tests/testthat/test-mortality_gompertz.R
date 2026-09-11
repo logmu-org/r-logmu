@@ -204,3 +204,28 @@ test_that("the engine converges to the closed-form integral", {
   # The residual is quadrature error, so a finer grid must be strictly closer.
   expect_lt(abs(fine$E - exact), abs(coarse$E - exact))
 })
+
+# ---- default_mortality -----------------------------------------------------
+
+test_that("default_mortality() is the no-argument Gompertz", {
+  expect_true(is_mortality(default_mortality()))
+  expect_identical(default_mortality(), gompertz_mortality())
+  expect_identical(length(formals(default_mortality)), 0L)
+})
+
+test_that("default_mortality() is the law the specification names", {
+  # THE VALUES, NOT THE ROUTE. Being the no-argument Gompertz is structural and
+  # cannot break; what CAN break is somebody changing those five defaults, which
+  # would move the default mortality silently and with it the Z scale of every
+  # weighted fit that relied on it. This is the assertion that stops that.
+  #
+  #     log mu = -3.8 + 0.1 (x - 75) - 0.01 (t - 2020)
+  at <- function(birth, t) {
+    log_mu(default_mortality(), list(birth = datey::datey(birth)), datey::datey(t))
+  }
+
+  expect_equal(at(1945, 2020), -3.8)                 # x = 75, t = 2020
+  expect_equal(at(1944, 2020), -3.8 + 0.1)           # a year older, same time
+  expect_equal(at(1946, 2021), -3.8 - 0.01)          # same age, a year later
+  expect_equal(at(1955, 2025), -3.8 + 0.1 * (70 - 75) - 0.01 * 5)
+})

@@ -15,7 +15,8 @@ fit(
   weight = NULL,
   val_similarity = NULL,
   val_distance = NULL,
-  z = NULL,
+  test_mortality = default_mortality(),
+  Z = NULL,
   settings = NULL,
   overdispersion = NULL,
   time_scale = NULL,
@@ -49,8 +50,11 @@ lives. Weights must not be negative.}
 \item{val_similarity, val_distance}{A pronoun expression for the second
 weighting factor, in either spelling. At most one may be given.}
 
-\item{z}{The \eqn{Z} scale: a single positive number, or a test mortality
-from which to compute it. See Details.}
+\item{test_mortality}{The mortality on which the \eqn{Z} scale is measured.
+See Details.}
+
+\item{Z}{The \eqn{Z} scale as a single positive number, given instead
+of a \code{test_mortality} rather than as well as one.}
 
 \item{settings}{A \code{\link[=settings]{settings()}} object carrying \code{overdispersion} and
 \code{time_scale}.}
@@ -80,7 +84,9 @@ abandoned.}
 \value{
 \code{fit()} returns a \code{fit}, whose fields are \code{beta}, \code{mortality} (the fitted
 model as a \code{mortality}), \code{variance}, \code{log_likelihood}, \code{penalty},
-\code{penalised_log_likelihood}, \code{z}, \code{overdispersion}, \code{iterations},
+\code{penalised_log_likelihood}, \code{Z}, \code{overdispersion}, \code{diagnostics} (the
+population and test-mortality numbers \code{print()} reports), \code{labels} (what was
+written for the include, the weight and the test mortality), \code{iterations},
 \code{evaluations}, \code{predicted_gain} and \code{model}.
 
 \code{is_fit()} returns a scalar \code{logical}.
@@ -105,17 +111,27 @@ it must be the same for every model being compared -- otherwise the
 penalised log-likelihoods are not on one scale and the comparison means
 nothing.
 
-So \code{z} is given in one of two ways, and is never taken from the model's own
-reference mortality:
+It is set in one of two ways, never from the model's own reference mortality,
+and they are alternatives rather than a pair:
 \itemize{
-\item as a number, which is what model selection needs, the caller having
-computed it once and passed it to every candidate; or
-\item as a test mortality, from which \eqn{Z} is computed over this same data,
-weight and include. \code{\link[=gompertz_mortality]{gompertz_mortality()}} is a reasonable choice.
+\item \code{test_mortality} names the mortality \eqn{Z} is measured on, over this same
+data, weight and include. It defaults to \code{\link[=default_mortality]{default_mortality()}}, and a fixed
+shared choice is worth more here than a good one, since \eqn{Z}'s job is to
+be one yardstick.
+\item \code{Z} gives \eqn{Z} directly as a number, skipping the measurement.
+This is what model selection needs, the caller having obtained it once and
+passed it to every candidate, and \code{\link[=compare_models]{compare_models()}} does exactly that.
 }
 
-\code{z} may be omitted only when the weight is absent or is an indicator, where
-\eqn{w^2 = w} makes \eqn{Z} exactly one.
+Where the weight is absent, is the literal 1, or is an expression that can be
+shown to be an indicator, \eqn{w^2 = w} makes \eqn{Z} exactly one. That is
+settled without looking at the data and without consulting \code{test_mortality}
+at all, so the unweighted case costs nothing.
+
+Being \emph{shown} to be an indicator is structural, because a column's type is
+unknown until the data arrives. \code{!.i$male} and \code{.i$group == "a"} qualify
+because the operator forces the type; the bare column \code{.i$male} does not, and
+costs one pass over the data to establish a \eqn{Z} of 1.
 }
 
 \section{Convergence}{
