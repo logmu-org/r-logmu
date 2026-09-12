@@ -135,9 +135,26 @@ jobs:
           if [ "$found" -eq 1 ]; then exit 1; fi
           echo "CLEAN: no sanitizer diagnostics found."
 
-      - name: Upload check directory
+      # THE LOGS, NOT THE CHECK DIRECTORY. Uploading all of `logmu.Rcheck/`
+      # shipped the installed package and its compiled library every run, 10 to
+      # 21 MB apiece, and on 2026-09-11 GitHub warned that the org had used 90%
+      # of its Actions STORAGE for the month -- storage counts artifacts, not
+      # minutes, and is billed as GB-months for as long as they are kept. Every
+      # sanitizer or valgrind diagnostic lands in one of these text files, so
+      # nothing of diagnostic value is lost, and 7 days is long enough to read
+      # them. The org-level default retention (Settings > Actions) governs the
+      # automatic on-failure uploads from `check-r-package` in the other
+      # workflow, which has no per-step retention input.
+      - name: Upload check logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logmu.Rcheck-${{ matrix.image }}
-          path: logmu.Rcheck/
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            logmu.Rcheck/00check.log
+            logmu.Rcheck/00install.out
+            logmu.Rcheck/logmu-Ex.Rout*
+            logmu.Rcheck/tests/**/*.Rout*
+            logmu.Rcheck/tests/**/*.log

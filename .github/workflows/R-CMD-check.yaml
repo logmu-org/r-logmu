@@ -92,6 +92,14 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+          # THE CHECK DIRECTORY IS UPLOADED ON FAILURE, DELIBERATELY KEPT. It
+          # was the only way to read the test output during the Windows crash
+          # of 2026-08-31, and `upload-results: never` is the only way to turn
+          # it off. It costs 7 MB per failed Windows job and 27 MB per failed
+          # Linux one, and 13 red Windows runs in three days is how the org's
+          # Actions STORAGE reached 90% on 2026-09-11. The action has no
+          # retention input, so what bounds the cost is the org-level default
+          # retention (Settings > Actions > General), cut from 90 days to 7.
           # FAIL ON ERRORS, NOT ON WARNINGS. The action's default is to fail on
           # a WARNING, and this package has one that cannot be fixed: the
           # vendored EVE headers carry pragmas suppressing diagnostics, which
@@ -182,6 +190,14 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+          # THE CHECK DIRECTORY IS UPLOADED ON FAILURE, DELIBERATELY KEPT. It
+          # was the only way to read the test output during the Windows crash
+          # of 2026-08-31, and `upload-results: never` is the only way to turn
+          # it off. It costs 7 MB per failed Windows job and 27 MB per failed
+          # Linux one, and 13 red Windows runs in three days is how the org's
+          # Actions STORAGE reached 90% on 2026-09-11. The action has no
+          # retention input, so what bounds the cost is the org-level default
+          # retention (Settings > Actions > General), cut from 90 days to 7.
           # FAIL ON ERRORS, NOT ON WARNINGS. The action's default is to fail on
           # a WARNING, and this package has one that cannot be fixed: the
           # vendored EVE headers carry pragmas suppressing diagnostics, which
