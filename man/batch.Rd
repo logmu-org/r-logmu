@@ -9,7 +9,7 @@ batch(
   .exp_data = NULL,
   .include = NULL,
   .weight = NULL,
-  .val_similarity = NULL,
+  .val_relevance = NULL,
   .val_distance = NULL,
   .breakdown = NULL,
   .settings = NULL,
@@ -22,8 +22,8 @@ batch(
 \item{...}{Named calls to \strong{logmu} analyses, currently \code{\link[=aev]{aev()}}. Each name
 becomes a name in the result and may not begin with a dot.}
 
-\item{.exp_data, .include, .weight, .val_similarity, .val_distance, .breakdown, .settings, .overdispersion, .time_scale}{Defaults for the analyses, each standing in for the argument of the same
-name wherever an analysis does not supply its own. \code{.val_similarity} and
+\item{.exp_data, .include, .weight, .val_relevance, .val_distance, .breakdown, .settings, .overdispersion, .time_scale}{Defaults for the analyses, each standing in for the argument of the same
+name wherever an analysis does not supply its own. \code{.val_relevance} and
 \code{.val_distance} are two spellings of one quantity, so only one may be given
 and an analysis naming either of them takes neither default.}
 

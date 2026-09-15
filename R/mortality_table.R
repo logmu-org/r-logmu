@@ -133,7 +133,7 @@ mortality_table <- function(x0, t0, q = NULL, mu = NULL, log_mu = NULL, name = N
 #' @rdname mortality
 #' @export
 log_mu.mortality_table <- function(x, .i, .t) {
-  .b <- get_birth_datey_from_.i(.i)
+  .b <- get_birth_dateys_from_.i(.i)
   ensure_is_valid_datey(.t)
   x0 <- attr(x, "x0")
   t0 <- attr(x, "t0")

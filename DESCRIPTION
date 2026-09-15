@@ -27,7 +27,8 @@ Imports:
     grid,
     gtable,
     lifecycle,
-    pillar (>= 1.9.0)
+    pillar (>= 1.9.0),
+    stats
 Suggests: 
     knitr,
     R6,

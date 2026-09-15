@@ -5,6 +5,7 @@
 // Copyright (c) Tim Gordon
 
 #include <cpp11.hpp>
+#include <algorithm>
 #include <cmath>
 #include "vec_ops/vec_ops.hpp"
 #include "mortality/convert_m_to_mu.hpp"
@@ -58,13 +59,19 @@ cpp11::doubles cpp_matrix_q_to_log_mu(cpp11::doubles q_matrix)
 }
 
 [[cpp11::register]]
+// Vectorised over individuals as well as over time: `b_clicks` and `t_clicks`
+// recycle against each other, so one birth against many times reads a lifeline
+// and many births against one time reads a population at an instant --
+// `simulate()` does the latter, click by click.
 cpp11::doubles cpp_slow_lookup_log_mu(
   cpp11::doubles log_mu_matrix,
   int x0_clicks, int t0_clicks, // xt order when interfacing with R
-  int b_clicks, cpp11::integers t_clicks
+  cpp11::integers b_clicks, cpp11::integers t_clicks
 )
 {
-  R_xlen_t n = t_clicks.size();
+  const R_xlen_t n_b = b_clicks.size();
+  const R_xlen_t n_t = t_clicks.size();
+  const R_xlen_t n = (n_b == 0 || n_t == 0) ? 0 : std::max(n_b, n_t);
   cpp11::writable::doubles result(n);
 
   if (n > 0)
@@ -82,7 +89,7 @@ cpp11::doubles cpp_slow_lookup_log_mu(
       p_result[i] = mortality::get_interpolated_log_mu_bt_from_annual_tx_array(
         p_log_mu, n_t, n_x, // tx order when inside C++
         t0_clicks, x0_clicks,
-        b_clicks, t_clicks[i]
+        b_clicks[i % n_b], t_clicks[i % n_t]
       );
 
     }

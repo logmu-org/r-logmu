@@ -54,15 +54,13 @@ default_max_halvings <- 30L
 #'   This is what model selection needs, the caller having obtained it once and
 #'   passed it to every candidate, and [compare_models()] does exactly that.
 #'
-#' Where the weight is absent, is the literal 1, or is an expression that can be
-#' shown to be an indicator, \eqn{w^2 = w} makes \eqn{Z} exactly one. That is
-#' settled without looking at the data and without consulting `test_mortality`
-#' at all, so the unweighted case costs nothing.
-#'
-#' Being *shown* to be an indicator is structural, because a column's type is
-#' unknown until the data arrives. `!.i$male` and `.i$group == "a"` qualify
-#' because the operator forces the type; the bare column `.i$male` does not, and
-#' costs one pass over the data to establish a \eqn{Z} of 1.
+#' Where the weight is absent, is the literal 1, or takes only the values 0 and
+#' 1 -- a logical expression, or a column holding nothing but zeros and ones --
+#' \eqn{w^2 = w} makes \eqn{Z} exactly one. The engine recognises such a weight
+#' and accumulates \eqn{\mathrm{E}w^2} as \eqn{\mathrm{E}w} itself, so the
+#' measured \eqn{Z} is one to the last bit rather than to a tolerance. The
+#' measurement is made regardless, since the same pass over the data supplies
+#' the population figures that `print()` reports.
 #'
 #' # Convergence
 #'
@@ -79,7 +77,7 @@ default_max_halvings <- 30L
 #'   it.
 #' @param weight A pronoun expression for the weight \eqn{w}, or `NULL` for
 #'   lives. Weights must not be negative.
-#' @param val_similarity,val_distance A pronoun expression for the second
+#' @param val_relevance,val_distance A pronoun expression for the second
 #'   weighting factor, in either spelling. At most one may be given.
 #' @param test_mortality The mortality on which the \eqn{Z} scale is measured.
 #'   See Details.
@@ -102,16 +100,25 @@ default_max_halvings <- 30L
 #' @param ... Ignored.
 #' @returns
 #' `fit()` returns a `fit`, whose fields are `beta`, `mortality` (the fitted
-#' model as a `mortality`), `variance`, `log_likelihood`, `penalty`,
-#' `penalised_log_likelihood`, `Z`, `overdispersion`, `diagnostics` (the
-#' population and test-mortality numbers `print()` reports), `labels` (what was
-#' written for the include, the weight and the test mortality), `iterations`,
-#' `evaluations`, `predicted_gain` and `model`.
+#' model as a `mortality`), `variance`, `L`, `p`, `L_P`, `Z`, `overdispersion`,
+#' `population` (the population and test-mortality numbers `print()` reports),
+#' `arguments` (the include, weight and relevance the fit was run with, kept so
+#' that [diagnose()] can reuse them), `labels` (what was written for the include,
+#' the weight and the test mortality), `iterations`, `evaluations`,
+#' `predicted_gain` and `model`.
 #'
 #' `is_fit()` returns a scalar `logical`.
 #'
 #' `coef()` returns the fitted coefficients as a named numeric vector, and
 #' `vcov()` their variance-covariance matrix.
+#'
+#' `residuals()` stops with a message: a `fit` keeps no data, so residuals come
+#' from an [aev()] on the fitted mortality.
+#'
+#' `summary()` returns a `summary.fit`: the `coefficients` table (`estimate`,
+#' `std_error` for one standard deviation and `conf_95pc` for the 95% half-width),
+#' the `correlation` matrix of the estimates, and the header's numbers. A fit
+#' prints as its summary.
 #' @examples
 #' data <- exp_data(
 #'   list(
@@ -136,7 +143,7 @@ fit <- function(exp_data,
                 model,
                 include = NULL,
                 weight = NULL,
-                val_similarity = NULL,
+                val_relevance = NULL,
                 val_distance = NULL,
                 test_mortality = default_mortality(),
                 Z = NULL,
@@ -161,7 +168,7 @@ fit <- function(exp_data,
   # its default, so a value test cannot tell `weight = NULL` from no weight.
   caller <- parent.frame()
   weight_ast <- aev_optional_ast(substitute(weight), missing(weight), caller)
-  similarity_ast <- aev_optional_ast(substitute(val_similarity), missing(val_similarity), caller)
+  relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
   test_ast <- fit_test_mortality_ast(substitute(test_mortality), missing(test_mortality),
                                      Z, caller)
@@ -175,13 +182,14 @@ fit <- function(exp_data,
   }
 
   columns <- exp_data_columns(exp_data)
-  diagnostics <- fit_diagnostics(test_ast, weight_ast, include, columns,
-                                 resolved$time_scale_clicks, threads)
-  scale <- resolve_Z(Z, weight_ast, diagnostics)
+  population <- fit_population(test_ast, weight_ast, include, columns,
+                               resolved$time_scale_clicks, threads)
+  scale <- resolve_Z(Z, population)
   labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality),
                             substitute(include), include, weight_ast)
+  arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
 
-  run <- fit_engine_run(model, include, weight_ast, similarity_ast, distance_ast,
+  run <- fit_engine_run(model, include, weight_ast, relevance_ast, distance_ast,
                         columns, resolved, scale, start,
                         L_tolerance, armijo, max_iterations, max_halvings, threads)
 
@@ -189,7 +197,7 @@ fit <- function(exp_data,
     stop(fit_failure_message(run, model, L_tolerance), call. = FALSE)
   }
 
-  new_fit(run, model, scale, resolved$overdispersion, diagnostics, labels)
+  new_fit(run, model, scale, resolved$overdispersion, population, arguments, labels)
 }
 
 # One model through the engine, and NO INTERPRETATION OF THE ANSWER. The status
@@ -197,7 +205,7 @@ fit <- function(exp_data,
 # with a failure: `fit()` raises, and `compare_models()` records it and ranks the
 # rest. Everything above this line is shared by every candidate in a comparison
 # and so is resolved once, before the loop.
-fit_engine_run <- function(model, include, weight_ast, similarity_ast, distance_ast,
+fit_engine_run <- function(model, include, weight_ast, relevance_ast, distance_ast,
                            columns, resolved, z_value, start,
                            L_tolerance, armijo, max_iterations, max_halvings, threads) {
 
@@ -207,7 +215,7 @@ fit_engine_run <- function(model, include, weight_ast, similarity_ast, distance_
     model$ref_mortality,
     terms,
     weight_ast,
-    similarity_ast,
+    relevance_ast,
     distance_ast,
     columns,
     resolved$time_scale_clicks,
@@ -274,13 +282,13 @@ fit_test_mortality_ast <- function(expr, absent, Z, caller) {
 # Omega of the run, so only here is `V` equal to `Ew^2`, which is what Z needs.
 # Anything wanting the user's Omega scales it afterwards -- see the header, where
 # the confidence interval does exactly that.
-fit_diagnostics <- function(test_ast, weight_ast, include, columns,
-                            time_scale_clicks, threads) {
+fit_population <- function(test_ast, weight_ast, include, columns,
+                           time_scale_clicks, threads) {
 
   ensure_mortality_leaves(test_ast)
 
   block <- function(mortality, weight) {
-    list(mortality = mortality, weight = weight, val_similarity = NULL,
+    list(mortality = mortality, weight = weight, val_relevance = NULL,
          val_distance = NULL, include = include, overdispersion = 1)
   }
 
@@ -301,19 +309,23 @@ fit_diagnostics <- function(test_ast, weight_ast, include, columns,
 
 # The Z scale, from the diagnostic pass rather than from a pass of its own.
 #
-# THE WEIGHT IS ASKED BEFORE THE MEASUREMENT IS USED. Where `w^2 = w` the answer
-# is exactly 1 whatever mortality was nominated, and an exact 1 beats a measured
-# 0.9999999. That is now a question of which NUMBER is right rather than of
-# whether to walk the data, because the diagnostics walk it either way.
+# ALWAYS MEASURED, AND EXACTLY 1 WHERE `w^2 = w`. There used to be a structural
+# shortcut here that returned 1 for no weight, the literal 1 or a provable
+# indicator without reading the measurement. It went because the engine already
+# does the same thing, and does it better: `passFoldIndicatorSquares` rewrites
+# `w * w` to `w` wherever `w` is zero or one -- including a bare logical column,
+# which R cannot see from the expression -- and sharing then makes `Ew^2` the
+# same accumulator as `Ew`, so the ratio is 1 to the bit. `test-fit.R` holds that
+# identity to `expect_identical()`; if it ever fails, the exactness of `p = k`
+# for an indicator weight has gone and a shortcut here would be needed again.
 #
 # NEVER FROM THE MODEL'S OWN REFERENCE MORTALITY. Candidates may differ in their
 # reference, so a Z taken from it would move with the candidate and destroy the
 # comparability it exists to provide.
-resolve_Z <- function(Z, weight_ast, diagnostics) {
+resolve_Z <- function(Z, population) {
 
-  # AN EXPLICIT SCALE WINS, and is checked before the shortcut rather than after,
-  # so that a caller forcing a common scale across a set of runs gets the number
-  # they asked for even where this particular one would have been 1.
+  # AN EXPLICIT SCALE WINS, so that a caller forcing a common scale across a set
+  # of runs gets the number they asked for even where this one measured 1.
   if (!is.null(Z)) {
     if (!is_single_pure_finite_numeric(Z) || Z <= 0) {
       stop("`Z` must be a single positive finite number.", call. = FALSE)
@@ -321,9 +333,7 @@ resolve_Z <- function(Z, weight_ast, diagnostics) {
     return(as.double(Z))
   }
 
-  if (weight_squares_to_itself(weight_ast)) return(1)
-
-  value <- diagnostics$Ew2 / diagnostics$Ew
+  value <- population$Ew2 / population$Ew
   if (!is_single_pure_finite_numeric(value) || value <= 0) {
     stop("The test mortality gave a Z of ", format(value), ", which cannot be used as a ",
          "scale. It is `Ew^2/Ew` over this data, so an empty or zero-weighted ",
@@ -347,6 +357,24 @@ fit_call_labels <- function(test_expr, test_absent, include_expr, include, weigh
   )
 }
 
+# THE SIGN IS `\u00b1` WHERE THE SESSION CAN SHOW IT, and `+/-` where it cannot.
+# The escape keeps this file ASCII, which CRAN checks for; the fallback is the
+# `cli` convention, keyed on `l10n_info()` rather than on the platform, because
+# a C-locale check box on any platform would otherwise print a mojibake sign.
+plus_minus <- function() {
+  if (isTRUE(l10n_info()[["UTF-8"]])) "\u00b1" else "+/-"
+}
+
+# The arguments a fit or a comparison was run with, kept on the object as the
+# captured ASTs so that `diagnose()` can reuse them as its defaults.
+fit_arguments <- function(include, weight_ast, relevance_ast, distance_ast, resolved) {
+  list(include = include,
+       weight = weight_ast,
+       val_relevance = relevance_ast,
+       val_distance = distance_ast,
+       time_scale_clicks = resolved$time_scale_clicks)
+}
+
 # The block both `print.fit()` and `print.model_comparison()` open with.
 #
 # WHAT IT IS FOR: judging whether to believe the numbers underneath it. A fit on
@@ -360,7 +388,7 @@ fit_call_labels <- function(test_expr, test_absent, include_expr, include, weigh
 # overdispersions usual in this work. So the interval scales and Z does not, and
 # the line says which it is quoted at.
 cat_analysis_header <- function(x) {
-  d <- x$diagnostics
+  d <- x$population
   number <- function(v) format(v, digits = 5L)
 
   cat(sprintf("  include         %s\n", x$labels$include))
@@ -370,36 +398,17 @@ cat_analysis_header <- function(x) {
   cat(sprintf("  test mortality  %s\n", x$labels$test_mortality))
   cat(sprintf("                  Aw %s   Ew %s   Ew^2 %s   Z %s\n",
               number(d$Aw), number(d$Ew), number(d$Ew2), number(x$Z)))
-  cat(sprintf("                  log A/E %s +/- %s (1 sd at overdispersion %s)\n",
-              number(log(d$Aw / d$Ew)),
-              number(sqrt(x$overdispersion * d$Ew2) / d$Ew),
+  # BOTH WIDTHS, EACH LABELLED. A `+/-` with no definition is a perpetual risk,
+  # so the line says which it is quoting: one standard deviation, which is
+  # `sqrt(V)/E` as the A/E accessors define it, and the 95% half-width that the
+  # charts draw, which is the same number times `aev_z_975`.
+  sd <- sqrt(x$overdispersion * d$Ew2) / d$Ew
+  pm <- plus_minus()
+  cat(sprintf("                  log A/E %s %s %s (1 sd) or %s %s (95%%), at overdispersion %s\n",
+              number(log(d$Aw / d$Ew)), pm, number(sd), pm, number(aev_z_975 * sd),
               number(x$overdispersion)))
   cat(sprintf("  overdispersion  %s\n", number(x$overdispersion)))
   invisible(x)
-}
-
-# Can we PROVE `w^2 = w`, and so `Z = Ew^2/Ew = 1` exactly, without touching the
-# data? Three cases, and the proof has to be structural because a column's type
-# is not known until the data arrives.
-#
-#   * no weight at all, which is the lives-weighted case
-#   * the literal 1, since `1^2 = 1`
-#   * a logical-valued, time-invariant expression -- `it_is_indicator()`
-#
-# WHAT THIS CANNOT SEE is a bare logical column. `.i$male` is an indicator in
-# fact and unprovable from the expression, where `!.i$male` and
-# `.i$group == "a"` are provable because the operator forces the type. Such a
-# weight costs one A/E pass that returns exactly 1. That is a missed
-# optimisation and not a wrong answer, and it USED to be an outright refusal.
-weight_squares_to_itself <- function(weight_ast) {
-  if (is.null(weight_ast)) return(TRUE)
-
-  if (identical(weight_ast$kind, "lit") && is.numeric(weight_ast$value) &&
-      length(weight_ast$value) == 1L && identical(as.double(weight_ast$value), 1)) {
-    return(TRUE)
-  }
-
-  it_is_indicator(weight_ast)
 }
 
 # ---- failure ---------------------------------------------------------------
@@ -463,7 +472,7 @@ fit_collinearity_message <- function(run, model) {
 
 # ---- the result ------------------------------------------------------------
 
-new_fit <- function(run, model, Z, overdispersion, diagnostics, call_labels) {
+new_fit <- function(run, model, Z, overdispersion, population, arguments, call_labels) {
   labels <- model_term_labels(model)
 
   beta <- run$beta
@@ -481,13 +490,13 @@ new_fit <- function(run, model, Z, overdispersion, diagnostics, call_labels) {
       beta = beta,
       mortality = fitted,
       variance = unpack_triangle(run$variance, length(labels), labels),
-      log_likelihood = run$log_likelihood,
-      penalty = run$penalty,
+      L = run$log_likelihood,
+      p = run$penalty,
 
       # L_P = L(beta_hat) - p, which is what models are compared on. Where the
       # weight is an indicator `p` is exactly the number of terms, and this is
       # then -AIC/2.
-      penalised_log_likelihood = run$log_likelihood - run$penalty,
+      L_P = run$log_likelihood - run$penalty,
 
       # REPORTED, because it is the unit every one of these numbers is quoted
       # in. An unusual portfolio or a changed test mortality is then visible
@@ -498,7 +507,13 @@ new_fit <- function(run, model, Z, overdispersion, diagnostics, call_labels) {
       # THE HEADER'S RAW MATERIAL, carried so that printing needs no data. A fit
       # does not retain `exp_data`, deliberately, so anything the header says
       # about the population has to be measured while the data is still to hand.
-      diagnostics = diagnostics,
+      population = population,
+
+      # WHAT THE FIT WAS RUN WITH, as captured ASTs rather than as text, so that
+      # `diagnose()` can run an A/E over the same population under the same
+      # weight without the user restating either. `labels` is the same thing as
+      # text, for printing.
+      arguments = arguments,
       labels = call_labels,
 
       iterations = run$iterations,
@@ -551,31 +566,113 @@ coef.fit <- function(object, ...) object$beta
 #' @export
 vcov.fit <- function(object, ...) object$variance
 
+# A FIT KEEPS NO DATA, deliberately, so it cannot produce residuals -- and
+# without this method `residuals()` falls through to `residuals.default`, which
+# returns `object$residuals`, which is a silent `NULL`. The message says where
+# residuals actually come from: an A/E on the fitted mortality, over whatever
+# breakdown of the data is wanted.
+#' @rdname fit
+#' @export
+residuals.fit <- function(object, ...) {
+  stop("A `fit` keeps no data, so it has no residuals of its own. Run an A/E on ",
+       "the fitted mortality over the breakdown you want, e.g. ",
+       "`aev(exp_data, mortality = fitted$mortality, breakdown = ...)`, and take ",
+       "the residuals from that.", call. = FALSE)
+}
+
 # NO `logLik()` METHOD, DELIBERATELY. It would make `AIC()` work and give the
 # wrong answer: `AIC()` penalises by the number of parameters, where the right
 # penalty here is `p = Z^-1 tr(J I^-1)`, which equals the term count only when
-# the weight is an indicator. Compare models on `penalised_log_likelihood`.
+# the weight is an indicator. Compare models on `L_P`.
+
+# The coefficient table `print()` shows. `std_error` is one standard deviation,
+# as R's `summary()` methods mean by the term; `conf_95pc` is the 95% half-width,
+# `aev_z_975` times that, so the two `+/-` figures a reader might want are both
+# on the page and both named -- the same principle as the header line.
+fit_coefficient_table <- function(x) {
+  errors <- unname(sqrt(diag(x$variance)))
+  data.frame(estimate = unname(x$beta), std_error = errors,
+             conf_95pc = aev_z_975 * errors, row.names = names(x$beta))
+}
+
+# The correlation matrix of the coefficient estimates: the covariance with each
+# entry divided by its two standard errors, so every off-diagonal lies in
+# [-1, 1] whatever units the coefficients carry -- a shift for an indicator, per
+# year for an age slope. With the `std_error` column it holds the whole of
+# `vcov()` and nothing is lost; what it adds is the reading, which is how the
+# estimation errors move together. Computed by hand rather than by
+# `stats::cov2cor()` to keep `stats` out of the imports for one line.
+fit_correlation <- function(x) {
+  errors <- sqrt(diag(x$variance))
+  x$variance / outer(errors, errors)
+}
+
+# The strictly lower triangle, two decimals, nothing above the diagonal and no
+# diagonal of ones. A one-term fit has nothing to show and prints nothing.
+cat_correlation <- function(correlation) {
+  k <- nrow(correlation)
+  if (k < 2L) return(invisible(NULL))
+
+  shown <- formatC(correlation, format = "f", digits = 2L)
+  shown[upper.tri(shown, diag = TRUE)] <- ""
+  shown <- shown[-1L, -k, drop = FALSE]
+  dimnames(shown) <- list(rownames(correlation)[-1L], colnames(correlation)[-k])
+
+  cat("\ncorrelation\n")
+  print(shown, quote = FALSE, right = TRUE)
+  invisible(NULL)
+}
 
 #' @rdname fit
 #' @export
-print.fit <- function(x, ...) {
+summary.fit <- function(object, ...) {
+  structure(
+    list(
+      terms = length(object$beta),
+      iterations = object$iterations,
+      evaluations = object$evaluations,
+      labels = object$labels,
+      population = object$population,
+      Z = object$Z,
+      overdispersion = object$overdispersion,
+      coefficients = fit_coefficient_table(object),
+      correlation = fit_correlation(object),
+      L = object$L,
+      p = object$p,
+      L_P = object$L_P
+    ),
+    class = "summary.fit"
+  )
+}
+
+#' @rdname fit
+#' @export
+print.summary.fit <- function(x, ...) {
   cat(sprintf("<fit: %d term%s, %d iteration%s, %d walk%s of the data>\n",
-              length(x$beta), if (length(x$beta) == 1L) "" else "s",
+              x$terms, if (x$terms == 1L) "" else "s",
               x$iterations, if (identical(x$iterations, 1L)) "" else "s",
               x$evaluations, if (identical(x$evaluations, 1L)) "" else "s"))
 
   cat_analysis_header(x)
 
-  errors <- sqrt(diag(x$variance))
-  table <- data.frame(estimate = unname(x$beta), std_error = unname(errors),
-                      row.names = names(x$beta))
   cat("\n")
-  print(table)
+  print(x$coefficients, digits = 4L)
+  cat_correlation(x$correlation)
 
   # NOT DEDUCTED HERE. A lone fit has no maximum to take away, so these are the
   # values themselves; only a comparison shifts them.
   cat(sprintf("\nL %s   p %s   L_P %s   k %d\n",
-              format(x$log_likelihood), format(x$penalty),
-              format(x$penalised_log_likelihood), length(x$beta)))
+              format(x$L), format(x$p), format(x$L_P), x$terms))
+  invisible(x)
+}
+
+# A FIT PRINTS AS ITS SUMMARY. There is nothing a fit could hold back that a
+# summary would then reveal, so the two are one view; `summary()` exists to be
+# computed on -- `summary(f)$coefficients`, `summary(f)$correlation` -- rather
+# than to say more.
+#' @rdname fit
+#' @export
+print.fit <- function(x, ...) {
+  print(summary(x))
   invisible(x)
 }

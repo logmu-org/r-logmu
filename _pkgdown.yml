@@ -129,6 +129,8 @@ reference:
   - covariates
   - fit
   - compare_models
+  - diagnose
+  - simulate
 - title: Running several analyses at once
   contents:
   - batch

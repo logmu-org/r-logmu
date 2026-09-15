@@ -156,8 +156,8 @@ inline FitRoots buildFitRecipe(
     const std::vector<NodeId>& terms,
     const std::vector<NodeId>& coefficients,
     NodeId weight,
-    NodeId similarity = invalidNodeId,
-    SimilarityForm form = SimilarityForm::Similarity,
+    NodeId relevance = invalidNodeId,
+    RelevanceForm form = RelevanceForm::Relevance,
 
     // ONLY EVER SET FROM A VERIFIED ASSERTION, never from one the user merely made. Omitting an
     // integral is a compile-time decision, so a false claim here does not produce a slow answer or a
@@ -224,9 +224,9 @@ inline FitRoots buildFitRecipe(
 
     const NodeId mu = tree.buildCall(Op::Exp, {logMu});
 
-    const NodeId factor = similarity == invalidNodeId || form == SimilarityForm::Similarity
-        ? similarity
-        : tree.buildCall(Op::Exp, {tree.buildCall(Op::Neg, {similarity})});
+    const NodeId factor = relevance == invalidNodeId || form == RelevanceForm::Relevance
+        ? relevance
+        : tree.buildCall(Op::Exp, {tree.buildCall(Op::Neg, {relevance})});
 
     const auto weighted = [&tree, factor](NodeId term)
     {

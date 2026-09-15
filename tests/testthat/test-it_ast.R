@@ -52,17 +52,51 @@ test_that("fields and time use are reported", {
   expect_true(it_uses_t(weighted))
 })
 
-test_that("indicators are detected structurally", {
-  expect_true(it_is_indicator(it_build_ast(quote(.i$sex == "male"))))
-  expect_true(it_is_indicator(it_build_ast(quote(.i$pension > 0))))
-  # depends on time -> not a (time-invariant) indicator
-  expect_false(it_is_indicator(it_build_ast(quote(.t > .b))))
-  # not logical -> a general variable, not an indicator
-  expect_false(it_is_indicator(it_build_ast(quote(.i$pension))))
+test_that("`if` selects per individual, over a whole population at once", {
+  # THIS IS WHAT `simulate()` LEANS ON: `.i` holding many individuals, and a
+  # sex-switched mortality evaluated over all of them in one call. It used to
+  # take `isTRUE()` of the condition, which picked the else branch for every
+  # vector condition and was only ever right for one individual at a time.
+  ast <- it_build_ast(quote(if (.i$male) 1 else 2))
+  expect_identical(it_eval(ast, list(male = c(TRUE, FALSE, TRUE))), c(1, 2, 1))
+  expect_identical(it_eval(ast, list(male = TRUE)), 1)
+  expect_identical(it_eval(ast, list(male = FALSE)), 2)
+
+  # An NA condition is an NA answer, not a silent else.
+  expect_identical(it_eval(ast, list(male = c(TRUE, NA))), c(1, NA))
+
+  # A branch that varies over time recycles against a per-individual condition.
+  timed <- it_build_ast(quote(if (.i$male) .t - .b else 0))
+  ages <- it_eval(timed, list(male = TRUE, birth = datey::datey(1950)),
+                  datey::datey(c(2015, 2016)))
+  expect_equal(as.double(ages), c(65, 66))
+
+  # And a `datey`-valued branch keeps its class, which `ifelse()` would strip.
+  dated <- it_build_ast(quote(if (.i$male) .b else .t))
+  picked <- it_eval(dated, list(male = c(TRUE, FALSE), birth = datey::datey(c(1950, 1960))),
+                    datey::datey(2015))
+  expect_true(datey::is_datey(picked))
+  expect_identical(picked, datey::datey(c(1950, 2015)))
 })
 
 test_that("reserved fields and bad pronouns are rejected", {
   expect_error(it_build_ast(quote(.i$E2R_died)), "reserved field")
+
+  # THE PREFIX AND THE COUNT ARE WHAT IS RESERVED, case-insensitively, as
+  # `exp_data()` recognises them: a column only `simulate()` knows about, one
+  # that does not exist yet, and the record count in any casing.
+  expect_error(it_build_ast(quote(.i$E2R_cap)), "names beginning `E2R_` are reserved (case insensitive)", fixed = TRUE)
+  expect_error(it_build_ast(quote(.i$E2R_anything)), "reserved field")
+  expect_error(it_build_ast(quote(.i$e2r_start)), "reserved field")
+  expect_error(it_build_ast(quote(.i$count)), "name `count`", fixed = TRUE)
+  expect_error(it_build_ast(quote(.i$COUNT)), "reserved field")
+
+  # But only those: `birth` and `uid` are special to `exp_data()` and may be
+  # read, and a near miss of the prefix is an ordinary field.
+  expect_identical(it_build_ast(quote(.i$birth))$name, "birth")
+  expect_identical(it_build_ast(quote(.i$uid))$name, "uid")
+  expect_identical(it_build_ast(quote(.i$E2Rcap))$name, "E2Rcap")
+  expect_identical(it_build_ast(quote(.i$counter))$name, "counter")
   expect_error(it_build_ast(quote(.i)), "must be used as")
   expect_error(it_build_ast(quote(.z)), "Unknown pronoun")
 })

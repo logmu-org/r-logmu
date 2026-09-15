@@ -50,19 +50,19 @@ struct AevRoots final
 };
 
 // Which way round the user wrote the second weighting factor. They are the same quantity -- a
-// similarity s and a distance d are related by d = -log s -- but NEITHER IS CONVERTED INTO THE OTHER
+// relevance s and a distance d are related by d = -log s -- but NEITHER IS CONVERTED INTO THE OTHER
 // BEFORE IT GETS HERE, and that is deliberate. Wrapping one as the other in R would leave the other
 // spelling's users needing a symbolic cancellation of log and exp to recover what they wrote, which
 // no pass performs; and a log/exp round trip is not exact in IEEE 754, so a user writing
-// `similarity = 0.5` would find their own number perturbed in the last bits for no purpose.
-enum class SimilarityForm : unsigned char
+// `relevance = 0.5` would find their own number perturbed in the last bits for no purpose.
+enum class RelevanceForm : unsigned char
 {
-    Similarity,  // the multiplier itself, used as written
+    Relevance,  // the multiplier itself, used as written
     Distance,   // -log of the multiplier, so the multiplier is exp(-d)
 };
 
-// SIMILARITY MULTIPLIES THE LOG-LIKELIHOOD LINEARLY AND IS NEVER SQUARED. Where the weight w is
-// linear in E and squared in V, the similarity s is linear in both:
+// RELEVANCE MULTIPLIES THE LOG-LIKELIHOOD LINEARLY AND IS NEVER SQUARED. Where the weight w is
+// linear in E and squared in V, the relevance s is linear in both:
 //
 //     A = died_value(s * w)
 //     E = integrate(mu * (s * w))
@@ -80,21 +80,21 @@ enum class SimilarityForm : unsigned char
 // and that hoist is worth far more than the exponential. Keeping d in the tree leaves the fusion
 // available to a later pass, which is the other half of why nothing is converted in R.
 //
-// `logMu` is the mortality's tree, already ingested; `weight` likewise, and `similarity` may be
+// `logMu` is the mortality's tree, already ingested; `weight` likewise, and `relevance` may be
 // `invalidNodeId` for none. Children are built before parents, so the arena still satisfies the
 // ordering the type annotation pass relies on.
 inline AevRoots buildAevRecipe(
     Tree& tree,
     NodeId logMu,
     NodeId weight,
-    NodeId similarity = invalidNodeId,
-    SimilarityForm form = SimilarityForm::Similarity)
+    NodeId relevance = invalidNodeId,
+    RelevanceForm form = RelevanceForm::Relevance)
 {
     const NodeId mu = tree.buildCall(Op::Exp, {logMu});
 
-    const NodeId factor = similarity == invalidNodeId || form == SimilarityForm::Similarity
-        ? similarity
-        : tree.buildCall(Op::Exp, {tree.buildCall(Op::Neg, {similarity})});
+    const NodeId factor = relevance == invalidNodeId || form == RelevanceForm::Relevance
+        ? relevance
+        : tree.buildCall(Op::Exp, {tree.buildCall(Op::Neg, {relevance})});
 
     const auto weighted = [&tree, factor](NodeId term)
     {

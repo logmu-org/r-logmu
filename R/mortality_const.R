@@ -65,8 +65,8 @@ mortality_const <- function(q = NULL, mu = NULL, log_mu = NULL, name = NULL) {
 #' @rdname mortality
 #' @export
 log_mu.mortality_const <- function(x, .i, .t) {
-  .b <- get_birth_datey_from_.i(.i)
+  .b <- get_birth_dateys_from_.i(.i)
   ensure_is_valid_datey(.t)
-  rep_len(x, length(.t))
+  rep_len(unclass(x), max(length(.b), length(.t)))
 }
 

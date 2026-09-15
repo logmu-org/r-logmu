@@ -46,6 +46,14 @@ get_birth_datey_from_.i <- function(.i) {
   }
   .b
 }
+# The same for `.i` holding a whole population, as `simulate()` supplies it.
+get_birth_dateys_from_.i <- function(.i) {
+  .b <- .i[["birth"]]
+  if (is.null(.b) || !is_valid_datey(.b) || length(.b) == 0L) {
+      stop("`", deparse(substitute(.i)), "` must be a list with valid `datey`s named `birth`.", call. = FALSE)
+  }
+  .b
+}
 
 
 ensure_is_pure_numeric <- function(x) {

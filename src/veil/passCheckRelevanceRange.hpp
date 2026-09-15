@@ -20,7 +20,7 @@
 namespace veil
 {
 
-// The similarity range check. A similarity s is a proportion, so it belongs in [0, 1], and a
+// The relevance range check. A relevance s is a proportion, so it belongs in [0, 1], and a
 // distance d = -log s therefore cannot be negative. Neither bound can be ENFORCED: both are
 // expressions of the record and of time, so their values are not known until the walk, and checking
 // each evaluated value would put a comparison in the innermost loop to police something the user
@@ -28,8 +28,8 @@ namespace veil
 //
 // WHAT CAN BE DONE IS ANALYTIC, AND THIS IS IT. Interval propagation already works out the range
 // each node can take, from literals and scanned column ranges upwards, so a violation that is
-// certain BEFORE ANY RECORD IS READ can be refused at compile time. `similarity = 2`,
-// `distance = -1`, and a similarity that is a column the scan says runs from 5 to 200, are all
+// certain BEFORE ANY RECORD IS READ can be refused at compile time. `relevance = 2`,
+// `distance = -1`, and a relevance that is a column the scan says runs from 5 to 200, are all
 // settled here for nothing.
 //
 // IT REFUSES ONLY WHAT IS ALWAYS WRONG -- an interval lying WHOLLY outside the bound -- and that
@@ -47,40 +47,40 @@ namespace veil
 
 // Which bound was broken, so the caller can say it in the user's own words rather than in terms of
 // the factor the engine built.
-enum class SimilarityViolation : unsigned char
+enum class RelevanceViolation : unsigned char
 {
     None,
-    Above,  // a similarity above 1, i.e. a negative distance
-    Below,  // a similarity below 0, which a distance cannot produce
+    Above,  // a relevance above 1, i.e. a negative distance
+    Below,  // a relevance below 0, which a distance cannot produce
 };
 
-inline SimilarityViolation passCheckSimilarityRange(
+inline RelevanceViolation passCheckRelevanceRange(
     const Tree& tree,
     const std::vector<Interval>& intervals,
-    NodeId similarity,
-    SimilarityForm form)
+    NodeId relevance,
+    RelevanceForm form)
 {
-    if (similarity == invalidNodeId) { return SimilarityViolation::None; }
-    if (similarity >= static_cast<NodeId>(intervals.size())) { return SimilarityViolation::None; }
+    if (relevance == invalidNodeId) { return RelevanceViolation::None; }
+    if (relevance >= static_cast<NodeId>(intervals.size())) { return RelevanceViolation::None; }
 
-    const Node& node = tree.at(similarity);
+    const Node& node = tree.at(relevance);
     if (!node.type.has_value() || node.type->type != Type::Double)
     {
-        throw std::runtime_error("veil: a similarity or distance must be a number.");
+        throw std::runtime_error("veil: a relevance or distance must be a number.");
     }
 
-    const Interval& range = intervals[similarity];
+    const Interval& range = intervals[relevance];
 
     // A distance is the negative log, so the bound reads the other way round: d < 0 is s > 1, and no
-    // distance can produce a similarity below zero at all, since exp is positive everywhere.
-    if (form == SimilarityForm::Distance)
+    // distance can produce a relevance below zero at all, since exp is positive everywhere.
+    if (form == RelevanceForm::Distance)
     {
-        return range.hi < 0.0 ? SimilarityViolation::Above : SimilarityViolation::None;
+        return range.hi < 0.0 ? RelevanceViolation::Above : RelevanceViolation::None;
     }
 
-    if (range.hi < 0.0) { return SimilarityViolation::Below; }
-    if (range.lo > 1.0) { return SimilarityViolation::Above; }
-    return SimilarityViolation::None;
+    if (range.hi < 0.0) { return RelevanceViolation::Below; }
+    if (range.lo > 1.0) { return RelevanceViolation::Above; }
+    return RelevanceViolation::None;
 }
 
 } // namespace veil

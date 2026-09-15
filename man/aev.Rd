@@ -9,7 +9,7 @@ aev(
   mortality,
   include = NULL,
   weight = NULL,
-  val_similarity = NULL,
+  val_relevance = NULL,
   val_distance = NULL,
   breakdown = NULL,
   settings = NULL,
@@ -28,11 +28,11 @@ aev(
 \item{weight}{A pronoun expression for the weight \eqn{w}, or a \code{variable}.
 \code{NULL} means a weight of 1, i.e. a count of lives.}
 
-\item{val_similarity, val_distance}{Two spellings of the second weighting
+\item{val_relevance, val_distance}{Two spellings of the second weighting
 factor \eqn{s}, related by \eqn{d = -\log s}. Give one or the other. A
-similarity belongs in \eqn{[0, 1]} and a distance must not be negative; see
-\emph{Similarity and distance}, \emph{Why the names begin with \code{val_}} and \emph{The bound
-on a similarity}.}
+relevance belongs in \eqn{[0, 1]} and a distance must not be negative; see
+\emph{Relevance and distance}, \emph{Why the names begin with \code{val_}} and \emph{The bound
+on a relevance}.}
 
 \item{breakdown}{An \code{include} or \code{\link[=includes]{includes()}} dividing the population into
 groups. \code{NULL} gives a single ungrouped result.}
@@ -78,18 +78,18 @@ scales \code{V}, and so scales every confidence interval and residual read from
 the result. There is no default: see \code{\link[=settings]{settings()}}.
 }
 
-\section{Similarity and distance}{
+\section{Relevance and distance}{
 
 A second weighting factor \eqn{s} says how much a record should count at all,
 as opposed to how much of it counts. It differs from \code{weight} in where it
-appears: the weight is squared in \eqn{V} and the similarity is not, so
+appears: the weight is squared in \eqn{V} and the relevance is not, so
 \eqn{A} and \eqn{E} take \eqn{sw} while \eqn{V} takes \eqn{sw^2}. The effect
-is that halving a record's similarity doubles the variance it implies, while
+is that halving a record's relevance doubles the variance it implies, while
 leaving the number of parameters a model may support unchanged.
 
 It may be written either way round, and they are one quantity:
 \itemize{
-\item \code{val_similarity} is \eqn{s} itself, intended to lie in \eqn{[0, 1]}, where
+\item \code{val_relevance} is \eqn{s} itself, intended to lie in \eqn{[0, 1]}, where
 1 counts a record fully and 0 not at all.
 \item \code{val_distance} is \eqn{d = -\log s}, so 0 counts a record fully, \code{log(2)}
 counts it at half, and larger counts it less.
@@ -97,30 +97,31 @@ counts it at half, and larger counts it less.
 
 Give one or the other, never both. \code{val_distance} is usually the easier of
 the two: a decay kernel is \code{val_distance = (2025 - .t) / 10} and a Gaussian
-is \code{val_distance = (x / h)^2}, where the similarity form would need the
+is \code{val_distance = (x / h)^2}, where the relevance form would need the
 exponential written out each time. Distances also add, so several reasons to
 discount a record combine by addition.
 
-A similarity of zero counts a record not at all, but \code{\link[=include]{include()}} is the way to
+A relevance of zero counts a record not at all, but \code{\link[=include]{include()}} is the way to
 leave records out: it clips exposure rather than multiplying through it.
 }
 
 \section{Why the names begin with \code{val_}}{
 
-A similarity or a distance is ordinarily a relation between two things. These
-arguments are functions of one record and one time, so the far end of the
-relation is left implicit: it is the valuation the analysis is aimed at, taken
-as a whole and at its as-at date. Leaving it implicit is what allows them to
-be written as ordinary variables of the experience record.
+Relevance is relevance \emph{to} something, and a distance is a distance \emph{from}
+it. Here that something is the valuation the analysis is aimed at, taken as
+a whole and at its as-at date: \code{val_relevance} says how far a record of
+experience bears on that valuation, and \code{val_distance} how far it is from
+it. Leaving the valuation implicit is what allows both to be written as
+ordinary variables of the experience record and of time.
 
 You write a \code{val_} argument yourself, and nothing derives it from valuation
-data. The prefix keeps \code{similarity} and \code{distance} free for a later, more
-general form that would take two records and two times.
+data. The prefix keeps \code{relevance} and \code{distance} free for a later, more
+general form that would relate two records at two times.
 }
 
-\section{The bound on a similarity}{
+\section{The bound on a relevance}{
 
-A similarity is a proportion and must lie in \eqn{[0, 1]}; a distance,
+A relevance is a proportion and must lie in \eqn{[0, 1]}; a distance,
 being \eqn{-\log s}, must not be negative.
 
 Neither is enforced value by value. Both are expressions of the record and of
@@ -132,7 +133,7 @@ What \strong{logmu} does instead is analytic, and costs nothing. It works out th
 range each expression can take -- from the numbers written in it and the
 range of each column in the data -- and refuses the calculation before
 reading a record if that range lies \strong{wholly} outside the bound. So
-\code{val_similarity = 2} is refused, and so is a similarity given as a column
+\code{val_relevance = 2} is refused, and so is a relevance given as a column
 whose values run from 5 to 200.
 
 It refuses only what is certainly wrong. A range that merely permits a

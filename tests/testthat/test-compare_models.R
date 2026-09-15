@@ -70,7 +70,7 @@ test_that("compare_models() returns a comparison over every candidate", {
 
   expect_identical(
     names(comparison$table),
-    c("k", "log_likelihood", "penalty", "penalised_log_likelihood", "status")
+    c("L_P", "L", "p", "k", "status")
   )
   expect_true(all(vapply(comparison$fits, is_fit, logical(1L))))
   expect_identical(sort(rownames(comparison$table)), c("group", "level"))
@@ -79,7 +79,7 @@ test_that("compare_models() returns a comparison over every candidate", {
 
 test_that("the table ranks on penalised log-likelihood, best first", {
   comparison <- two()
-  penalised <- comparison$table$penalised_log_likelihood
+  penalised <- comparison$table$L_P
 
   # Descending, because larger is better -- this is the AIC without the -2.
   expect_true(all(diff(penalised) <= 0))
@@ -88,7 +88,7 @@ test_that("the table ranks on penalised log-likelihood, best first", {
   # THE TABLE KEEPS THE RAW VALUES. Only `print()` deducts the maximum, which is
   # why no argument is needed to get at them.
   expect_true(all(penalised < 0))
-  expect_equal(penalised, comparison$table$log_likelihood - comparison$table$penalty)
+  expect_equal(penalised, comparison$table$L - comparison$table$p)
 })
 
 test_that("the fits stay alongside the rows they rank", {
@@ -106,8 +106,8 @@ test_that("the fits stay alongside the rows they rank", {
   # agree row by row rather than merely contain the same names.
   expect_identical(names(comparison$fits), rownames(comparison$table))
   for (at in seq_len(nrow(comparison$table))) {
-    expect_identical(comparison$fits[[at]]$penalised_log_likelihood,
-                     comparison$table$penalised_log_likelihood[[at]])
+    expect_identical(comparison$fits[[at]]$L_P,
+                     comparison$table$L_P[[at]])
     expect_identical(length(comparison$fits[[at]]$beta),
                      comparison$table$k[[at]])
   }
@@ -118,8 +118,8 @@ test_that("best_fit() returns the winner", {
   best <- best_fit(comparison)
 
   expect_true(is_fit(best))
-  expect_identical(best$penalised_log_likelihood,
-                   max(comparison$table$penalised_log_likelihood))
+  expect_identical(best$L_P,
+                   max(comparison$table$L_P))
   expect_identical(best, comparison$fits[[1L]])
 })
 
@@ -152,9 +152,9 @@ test_that("the penalty is the term count for an indicator weight", {
     settings = basis
   )
 
-  expect_equal(comparison$table$penalty, as.double(comparison$table$k))
-  expect_equal(comparison$table$penalised_log_likelihood,
-               comparison$table$log_likelihood - comparison$table$k)
+  expect_equal(comparison$table$p, as.double(comparison$table$k))
+  expect_equal(comparison$table$L_P,
+               comparison$table$L - comparison$table$k)
 })
 
 test_that("overdispersion scales the fit term and leaves the penalty alone", {
@@ -170,14 +170,14 @@ test_that("overdispersion scales the fit term and leaves the penalty alone", {
                         models = list(level = level_model, group = group_model),
                         overdispersion = 10, L_tolerance = 1e-12)
 
-  expect_equal(ten$table$penalty, one$table$penalty)
-  expect_equal(ten$table$log_likelihood, one$table$log_likelihood / 10)
+  expect_equal(ten$table$p, one$table$p)
+  expect_equal(ten$table$L, one$table$L / 10)
 
   # And the consequence: the richer candidate's advantage in L is divided by ten
   # while the extra two parameters still cost two.
   advantage <- function(comparison) {
     table <- comparison$table
-    table["group", "log_likelihood"] - table["level", "log_likelihood"]
+    table["group", "L"] - table["level", "L"]
   }
   expect_equal(advantage(ten), advantage(one) / 10)
 })
@@ -280,7 +280,7 @@ test_that("the diagnostic pass happens once, whatever the weight", {
 
 test_that("the header reports the population it fitted on", {
   comparison <- two()
-  d <- comparison$diagnostics
+  d <- comparison$population
 
   # Nine lives, five of whom die, over an exposure this A/E measures directly:
   # `mu = 1` makes E the person-years and A the death count.
@@ -305,16 +305,60 @@ test_that("both printed likelihood columns shift by the same constant", {
   # until this test existed.
   comparison <- two()
   shown <- comparison_shown_table(comparison)
-  best <- max(comparison$table$penalised_log_likelihood)
+  best <- max(comparison$table$L_P)
 
   expect_equal(shown$L - shown$L_P, shown$p)
   expect_identical(shown$L_P[[1L]], 0)
-  expect_equal(shown$L_P, comparison$table$penalised_log_likelihood - best)
-  expect_equal(shown$L, comparison$table$log_likelihood - best)
+  expect_equal(shown$L_P, comparison$table$L_P - best)
+  expect_equal(shown$L, comparison$table$L - best)
   expect_identical(names(shown), c("L_P", "L", "p", "k"))
 
   # Not `L` shifted by its own maximum, which for these candidates differs.
-  expect_false(isTRUE(all.equal(best, max(comparison$table$log_likelihood))))
+  expect_false(isTRUE(all.equal(best, max(comparison$table$L))))
+})
+
+test_that("summary() of a comparison summarises every candidate, best first", {
+  comparison <- two()
+  s <- summary(comparison)
+
+  expect_s3_class(s, "summary.model_comparison")
+  expect_identical(names(s$fits), rownames(comparison$table))
+  expect_true(all(vapply(s$fits, inherits, logical(1L), "summary.fit")))
+  expect_identical(s$table, comparison_shown_table(comparison))
+  expect_identical(s$fits[[1L]]$coefficients, fit_coefficient_table(comparison$fits[[1L]]))
+
+  # THE PRINT STOPS AT THE RANKING; THE SUMMARY GOES ON THROUGH THE CANDIDATES.
+  brief <- capture.output(print(comparison))
+  full <- capture.output(print(s))
+  expect_identical(full[seq_along(brief)], brief)
+  expect_identical(grep("^---- ", full, value = TRUE),
+                   paste("----", rownames(comparison$table)))
+  expect_true(any(full == "correlation"))
+  expect_false(any(brief == "correlation"))
+})
+
+test_that("the printed likelihood columns are fixed to three decimals", {
+  # `data.frame` printing chose digits per column and gave `0.00000` beside
+  # `3.000000` beside `2.9811832`. One unit of L is a parameter's worth, so three
+  # decimals is already generous; `k` stays an integer and a failed candidate's
+  # NA stays NA.
+  comparison <- two()
+  formatted <- comparison_formatted_table(comparison_shown_table(comparison))
+
+  expect_true(all(grepl("^-?[0-9]+\\.[0-9]{3}$", formatted$L_P)))
+  expect_true(all(grepl("^-?[0-9]+\\.[0-9]{3}$", formatted$L)))
+  expect_true(all(grepl("^-?[0-9]+\\.[0-9]{3}$", formatted$p)))
+  expect_identical(formatted$L_P[[1L]], "0.000")
+  expect_true(is.integer(formatted$k))
+
+  # And `print()` shows the formatted table, not the raw one.
+  printed <- capture.output(print(comparison))
+  expect_true(any(grepl("^level +-?[0-9]+\\.[0-9]{3} +-?[0-9]+\\.[0-9]{3} +1\\.000 +1$", printed)))
+
+  # A failed row formats its NA as NA rather than raising.
+  na_row <- data.frame(L_P = NA_real_, L = NA_real_, p = NA_real_, k = 1L,
+                       row.names = "broken")
+  expect_identical(trimws(comparison_formatted_table(na_row)$L_P), "NA")
 })
 
 test_that("the header's interval carries the user's overdispersion", {
@@ -325,14 +369,18 @@ test_that("the header's interval carries the user's overdispersion", {
   for (omega in c(1, 4)) {
     comparison <- compare_models(group_data, models = list(level = level_model),
                                  weight = .i$pension, overdispersion = omega)
-    d <- comparison$diagnostics
-    expected <- format(sqrt(omega * d$Ew2) / d$Ew, digits = 5L)
+    d <- comparison$population
+    sd <- sqrt(omega * d$Ew2) / d$Ew
 
+    # BOTH WIDTHS, BOTH LABELLED: one standard deviation and the 95% half-width
+    # the charts draw, each named on the line so no `+/-` goes undefined.
     shown <- capture.output(print(comparison))
     line <- grep("log A/E", shown, value = TRUE)
     expect_length(line, 1L)
-    expect_true(grepl(expected, line, fixed = TRUE))
-    expect_true(grepl(sprintf("1 sd at overdispersion %s", omega), line, fixed = TRUE))
+    pm <- plus_minus()
+    expect_true(grepl(sprintf("%s %s (1 sd)", pm, format(sd, digits = 5L)), line, fixed = TRUE))
+    expect_true(grepl(sprintf("%s %s (95%%)", pm, format(aev_z_975 * sd, digits = 5L)), line, fixed = TRUE))
+    expect_true(grepl(sprintf("at overdispersion %s", omega), line, fixed = TRUE))
   }
 
   # And at Omega = 4 the interval is twice the Omega = 1 one, while Z is unmoved.
@@ -358,7 +406,7 @@ test_that("the header names the include, the weight and the test mortality given
   expect_true(any(grepl("weight          .i\\$pension", shown)))
 
   # The include narrows the population the header describes, not just the fit.
-  expect_lt(comparison$diagnostics$deaths, 5)
+  expect_lt(comparison$population$deaths, 5)
 })
 
 # ---- a failing candidate ---------------------------------------------------
@@ -382,9 +430,9 @@ test_that("a candidate that cannot be fitted does not destroy the comparison", {
 
   expect_identical(nrow(comparison$table), 3L)
   expect_identical(comparison$table["broken", "status"], "not_identifiable")
-  expect_identical(comparison$table["broken", "penalised_log_likelihood"], NA_real_)
-  expect_identical(comparison$table["broken", "log_likelihood"], NA_real_)
-  expect_identical(comparison$table["broken", "penalty"], NA_real_)
+  expect_identical(comparison$table["broken", "L_P"], NA_real_)
+  expect_identical(comparison$table["broken", "L"], NA_real_)
+  expect_identical(comparison$table["broken", "p"], NA_real_)
 
   # LAST, whatever its status, because `order(na.last = TRUE)` puts NA at the end.
   expect_identical(rownames(comparison$table)[[3L]], "broken")
@@ -416,7 +464,7 @@ test_that("a comparison in which nothing converged has no best fit", {
     compare_models(group_data, models = list(broken = collinear_model), settings = basis)
   )
 
-  expect_identical(comparison$table$penalised_log_likelihood, NA_real_)
+  expect_identical(comparison$table$L_P, NA_real_)
   expect_error(best_fit(comparison), "No candidate converged")
 
   # And printing it must not fail for want of a maximum to deduct.

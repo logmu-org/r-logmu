@@ -23,7 +23,7 @@
 #' maximum likelihood fitting and model selection using AIC.
 #'
 #' Weighting #' (e.g. amounts vs lives),
-#' probabilistic similarity weighting (e.g. down-weight older data) and
+#' probabilistic relevance weighting (e.g. down-weight older data) and
 #' optionally time-based inclusion criteria (e.g. sub-setting experience by age) are supported throughout.
 #'
 #' Calculations use SIMD vectorisation and multi-threading for performance.

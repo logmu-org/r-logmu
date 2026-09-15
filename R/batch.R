@@ -24,15 +24,15 @@ batch_operations <- function() {
 # it cannot change an answer (reduction is per chunk, not per thread), and once
 # several operations' specifications share one crossing there is a single pool
 # and no per-operation meaning left.
-batch_defaulted_arguments <- c("exp_data", "include", "weight", "val_similarity",
+batch_defaulted_arguments <- c("exp_data", "include", "weight", "val_relevance",
                                "val_distance", "breakdown", "settings",
                                "overdispersion", "time_scale")
 
-# `val_similarity` and `val_distance` are two spellings of ONE quantity, so an
+# `val_relevance` and `val_distance` are two spellings of ONE quantity, so an
 # analysis naming either of them has said its piece and NEITHER default applies.
 # Injected argument by argument they would combine into the pair that is
 # refused, which is a confusing way to be told that a default exists.
-batch_paired_arguments <- c("val_similarity", "val_distance")
+batch_paired_arguments <- c("val_relevance", "val_distance")
 
 #' Run several analyses over one dataset in a single pass
 #'
@@ -71,9 +71,9 @@ batch_paired_arguments <- c("val_similarity", "val_distance")
 #'
 #' @param ... Named calls to **logmu** analyses, currently [aev()]. Each name
 #'   becomes a name in the result and may not begin with a dot.
-#' @param .exp_data,.include,.weight,.val_similarity,.val_distance,.breakdown,.settings,.overdispersion,.time_scale
+#' @param .exp_data,.include,.weight,.val_relevance,.val_distance,.breakdown,.settings,.overdispersion,.time_scale
 #'   Defaults for the analyses, each standing in for the argument of the same
-#'   name wherever an analysis does not supply its own. `.val_similarity` and
+#'   name wherever an analysis does not supply its own. `.val_relevance` and
 #'   `.val_distance` are two spellings of one quantity, so only one may be given
 #'   and an analysis naming either of them takes neither default.
 #' @param .threads Worker threads for the whole batch. `0` asks for as many as
@@ -109,7 +109,7 @@ batch <- function(...,
                   .exp_data = NULL,
                   .include = NULL,
                   .weight = NULL,
-                  .val_similarity = NULL,
+                  .val_relevance = NULL,
                   .val_distance = NULL,
                   .breakdown = NULL,
                   .settings = NULL,
@@ -121,8 +121,8 @@ batch <- function(...,
   elements <- as.list(substitute(list(...)))[-1L]
   element_names <- batch_element_names(elements)
 
-  if (!is.null(substitute(.val_similarity)) && !is.null(substitute(.val_distance))) {
-    stop("Give either `.val_similarity` or `.val_distance`, not both.", call. = FALSE)
+  if (!is.null(substitute(.val_relevance)) && !is.null(substitute(.val_distance))) {
+    stop("Give either `.val_relevance` or `.val_distance`, not both.", call. = FALSE)
   }
 
   # THE DEFAULTS TRAVEL AS EXPRESSIONS, not values. A weight is a pronoun
@@ -133,7 +133,7 @@ batch <- function(...,
     exp_data       = substitute(.exp_data),
     include        = substitute(.include),
     weight         = substitute(.weight),
-    val_similarity = substitute(.val_similarity),
+    val_relevance = substitute(.val_relevance),
     val_distance   = substitute(.val_distance),
     breakdown      = substitute(.breakdown),
     settings       = substitute(.settings),
@@ -274,8 +274,8 @@ batch_plan_aev <- function(given, caller, name) {
   # The engine refuses this pair too, and must, since it guards every front end.
   # This one exists to name the analysis, which the engine cannot: a batch of a
   # dozen would otherwise report the fault without saying whose it is.
-  if (!is.null(given[["val_similarity"]]) && !is.null(given[["val_distance"]])) {
-    stop("`", name, "` gives both `val_similarity` and `val_distance`. They are ",
+  if (!is.null(given[["val_relevance"]]) && !is.null(given[["val_distance"]])) {
+    stop("`", name, "` gives both `val_relevance` and `val_distance`. They are ",
          "two spellings of one quantity, so give either, not both.", call. = FALSE)
   }
 
@@ -286,7 +286,7 @@ batch_plan_aev <- function(given, caller, name) {
     exp_data          = exp_data,
     time_scale_clicks = resolved$time_scale_clicks,
     plan              = aev_plan(ast("mortality"), ast("weight"),
-                                 ast("val_similarity"), ast("val_distance"),
+                                 ast("val_relevance"), ast("val_distance"),
                                  value("include"), value("breakdown"),
                                  resolved$overdispersion)
   )

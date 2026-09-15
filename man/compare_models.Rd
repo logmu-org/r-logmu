@@ -4,6 +4,8 @@
 \alias{compare_models}
 \alias{is_model_comparison}
 \alias{best_fit}
+\alias{summary.model_comparison}
+\alias{print.summary.model_comparison}
 \alias{print.model_comparison}
 \title{Compare mortality models by penalised log-likelihood}
 \usage{
@@ -12,7 +14,7 @@ compare_models(
   models,
   include = NULL,
   weight = NULL,
-  val_similarity = NULL,
+  val_relevance = NULL,
   val_distance = NULL,
   test_mortality = default_mortality(),
   Z = NULL,
@@ -30,6 +32,10 @@ is_model_comparison(x)
 
 best_fit(x)
 
+\method{summary}{model_comparison}(object, ...)
+
+\method{print}{summary.model_comparison}(x, ...)
+
 \method{print}{model_comparison}(x, ...)
 }
 \arguments{
@@ -44,7 +50,7 @@ it.}
 \item{weight}{A pronoun expression for the weight \eqn{w}, or \code{NULL} for
 lives. Weights must not be negative.}
 
-\item{val_similarity, val_distance}{A pronoun expression for the second
+\item{val_relevance, val_distance}{A pronoun expression for the second
 weighting factor, in either spelling. At most one may be given.}
 
 \item{test_mortality}{The mortality on which the \eqn{Z} scale is measured,
@@ -71,17 +77,17 @@ is abandoned.}
 
 \item{threads}{The number of worker threads.}
 
-\item{x}{A \code{model_comparison}.}
+\item{x, object}{A \code{model_comparison}.}
 
 \item{...}{Ignored.}
 }
 \value{
 \code{compare_models()} returns a \code{model_comparison}, whose fields are \code{table} (the
-ranking, best first, with columns \code{k}, \code{log_likelihood}, \code{penalty},
-\code{penalised_log_likelihood} and \code{status}), \code{fits} (the \code{fit} of each candidate,
+ranking, best first, with columns \code{L_P}, \code{L}, \code{p}, \code{k} and \code{status}), \code{fits} (the \code{fit} of each candidate,
 in the same order, \code{NULL} where one failed), \code{failures} (the diagnosis of each
 failure, named, empty where there were none), \code{Z}, \code{overdispersion},
-\code{diagnostics} (the population and test-mortality numbers the header reports)
+\code{population} (the population and test-mortality numbers the header reports),
+\code{arguments} (what the comparison was run with, for \code{\link[=diagnose]{diagnose()}})
 and \code{labels} (what was written for the include, the weight and the test
 mortality).
 
@@ -94,6 +100,11 @@ prints as 0. Both columns shift by the same constant, which keeps
 \code{is_model_comparison()} returns a scalar \code{logical}.
 
 \code{best_fit()} returns the \code{fit} of the highest-ranked candidate.
+
+\code{summary()} returns a \code{summary.model_comparison}: the shifted \code{table} as
+printed, the header's numbers, and in \code{fits} the \link[=fit]{summary()} of every
+converged candidate, best first. Printing it shows the ranking and then each
+candidate's coefficient table and correlation matrix.
 }
 \description{
 Fits several candidate \code{\link[=model]{model()}}s against one set of experience data and

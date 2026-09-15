@@ -56,7 +56,7 @@
 #include "veil/passCheckTimeInvariance.hpp"
 #include "veil/passFoldConstants.hpp"
 #include "veil/passNarrowComparisons.hpp"
-#include "veil/passCheckSimilarityRange.hpp"
+#include "veil/passCheckRelevanceRange.hpp"
 #include "veil/passPropagateIntervals.hpp"
 #include "veil/passDistributeSquares.hpp"
 #include "veil/passFoldIndicatorSquares.hpp"
@@ -1778,7 +1778,7 @@ veil::Interval exposureTimeInterval(
 AevBuild buildAev(
     cpp11::list mortality,
     SEXP weight,
-    SEXP valSimilarity,
+    SEXP valRelevance,
     SEXP valDistance,
     SEXP include,
     const cpp11::strings& columnNames,
@@ -1797,21 +1797,21 @@ AevBuild buildAev(
 
     // The two spellings of the second weighting factor are one quantity, so only one may be given.
     // Which one was written travels all the way to the recipe rather than being converted here; see
-    // `SimilarityForm` for why.
-    if (valSimilarity != R_NilValue && valDistance != R_NilValue)
+    // `RelevanceForm` for why.
+    if (valRelevance != R_NilValue && valDistance != R_NilValue)
     {
-        cpp11::stop("Give either `val_similarity` or `val_distance`, not both.");
+        cpp11::stop("Give either `val_relevance` or `val_distance`, not both.");
     }
 
-    const SEXP secondFactor = valSimilarity != R_NilValue ? valSimilarity : valDistance;
-    const veil::SimilarityForm form = valSimilarity != R_NilValue
-        ? veil::SimilarityForm::Similarity
-        : veil::SimilarityForm::Distance;
-    const veil::NodeId similarityNode = secondFactor == R_NilValue
+    const SEXP secondFactor = valRelevance != R_NilValue ? valRelevance : valDistance;
+    const veil::RelevanceForm form = valRelevance != R_NilValue
+        ? veil::RelevanceForm::Relevance
+        : veil::RelevanceForm::Distance;
+    const veil::NodeId relevanceNode = secondFactor == R_NilValue
         ? veil::invalidNodeId
         : ingest(tree, objs, cpp11::as_cpp<cpp11::list>(secondFactor), columnNames);
 
-    const veil::AevRoots roots = veil::buildAevRecipe(tree, logMu, weightNode, similarityNode, form);
+    const veil::AevRoots roots = veil::buildAevRecipe(tree, logMu, weightNode, relevanceNode, form);
     tree.addRoot(roots.a);
     tree.addRoot(roots.e);
     tree.addRoot(roots.v);
@@ -1830,19 +1830,19 @@ AevBuild buildAev(
     // Said in the user's own words, since they wrote one spelling and not the other. Only a
     // violation that is certain before any record is read reaches here; the pass says why it
     // refuses nothing weaker.
-    switch (veil::passCheckSimilarityRange(tree, result.intervals, similarityNode, form))
+    switch (veil::passCheckRelevanceRange(tree, result.intervals, relevanceNode, form))
     {
-        case veil::SimilarityViolation::Above:
-            if (form == veil::SimilarityForm::Distance)
+        case veil::RelevanceViolation::Above:
+            if (form == veil::RelevanceForm::Distance)
             {
                 cpp11::stop("`val_distance` cannot be negative, and this one always is.");
             }
-            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always above 1.");
+            cpp11::stop("`val_relevance` must lie between 0 and 1, and this one is always above 1.");
             break;
-        case veil::SimilarityViolation::Below:
-            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always below 0.");
+        case veil::RelevanceViolation::Below:
+            cpp11::stop("`val_relevance` must lie between 0 and 1, and this one is always below 0.");
             break;
-        case veil::SimilarityViolation::None:
+        case veil::RelevanceViolation::None:
             break;
     }
 
@@ -1909,7 +1909,7 @@ FitBuild buildFit(
     cpp11::list mortality,
     cpp11::list terms,
     SEXP weight,
-    SEXP valSimilarity,
+    SEXP valRelevance,
     SEXP valDistance,
     SEXP include,
     const cpp11::strings& columnNames,
@@ -1944,16 +1944,16 @@ FitBuild buildFit(
         ? tree.buildLitDouble(1.0)
         : ingest(tree, objs, cpp11::as_cpp<cpp11::list>(weight), columnNames);
 
-    if (valSimilarity != R_NilValue && valDistance != R_NilValue)
+    if (valRelevance != R_NilValue && valDistance != R_NilValue)
     {
-        cpp11::stop("Give either `val_similarity` or `val_distance`, not both.");
+        cpp11::stop("Give either `val_relevance` or `val_distance`, not both.");
     }
 
-    const SEXP secondFactor = valSimilarity != R_NilValue ? valSimilarity : valDistance;
-    const veil::SimilarityForm form = valSimilarity != R_NilValue
-        ? veil::SimilarityForm::Similarity
-        : veil::SimilarityForm::Distance;
-    const veil::NodeId similarityNode = secondFactor == R_NilValue
+    const SEXP secondFactor = valRelevance != R_NilValue ? valRelevance : valDistance;
+    const veil::RelevanceForm form = valRelevance != R_NilValue
+        ? veil::RelevanceForm::Relevance
+        : veil::RelevanceForm::Distance;
+    const veil::NodeId relevanceNode = secondFactor == R_NilValue
         ? veil::invalidNodeId
         : ingest(tree, objs, cpp11::as_cpp<cpp11::list>(secondFactor), columnNames);
 
@@ -1973,7 +1973,7 @@ FitBuild buildFit(
     }
 
     const veil::FitRoots roots = veil::buildFitRecipe(
-        tree, logMu, termNodes, coefficientNodes, weightNode, similarityNode, form,
+        tree, logMu, termNodes, coefficientNodes, weightNode, relevanceNode, form,
         disjointCovariates);
     for (const veil::NodeId root : veil::fitRootOrder(roots)) { tree.addRoot(root); }
 
@@ -1987,19 +1987,19 @@ FitBuild buildFit(
     const PipelineResult result = runTreePipeline(tree, objs, columnTypes, constraints, mapping,
                                                   exposureTimeInterval(exposure, constraints));
 
-    switch (veil::passCheckSimilarityRange(tree, result.intervals, similarityNode, form))
+    switch (veil::passCheckRelevanceRange(tree, result.intervals, relevanceNode, form))
     {
-        case veil::SimilarityViolation::Above:
-            if (form == veil::SimilarityForm::Distance)
+        case veil::RelevanceViolation::Above:
+            if (form == veil::RelevanceForm::Distance)
             {
                 cpp11::stop("`val_distance` cannot be negative, and this one always is.");
             }
-            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always above 1.");
+            cpp11::stop("`val_relevance` must lie between 0 and 1, and this one is always above 1.");
             break;
-        case veil::SimilarityViolation::Below:
-            cpp11::stop("`val_similarity` must lie between 0 and 1, and this one is always below 0.");
+        case veil::RelevanceViolation::Below:
+            cpp11::stop("`val_relevance` must lie between 0 and 1, and this one is always below 0.");
             break;
-        case veil::SimilarityViolation::None:
+        case veil::RelevanceViolation::None:
             break;
     }
 
@@ -2204,7 +2204,7 @@ cpp11::list cpp_veil_fit(
     cpp11::list terms,
     cpp11::list betas,
     SEXP weight,
-    SEXP val_similarity,
+    SEXP val_relevance,
     SEXP val_distance,
     cpp11::list columns,
     int time_scale,
@@ -2224,7 +2224,7 @@ cpp11::list cpp_veil_fit(
     exposure.died = exposureColumn(columnNames, columnTypes, "E2R_died", veil::Type::Bool);
     exposure.deltaTClicks = veil::validateTimeScaleClicks(time_scale);
 
-    FitBuild built = buildFit(mortality, terms, weight, val_similarity, val_distance,
+    FitBuild built = buildFit(mortality, terms, weight, val_relevance, val_distance,
                               include, columnNames, columnTypes, constraints,
                               encoding.mapping, exposure);
     veil::Block& block = built.block;
@@ -2339,7 +2339,7 @@ cpp11::list cpp_veil_fit_run(
     cpp11::list mortality,
     cpp11::list terms,
     SEXP weight,
-    SEXP val_similarity,
+    SEXP val_relevance,
     SEXP val_distance,
     cpp11::list columns,
     int time_scale,
@@ -2408,7 +2408,7 @@ cpp11::list cpp_veil_fit_run(
         }
     }
 
-    FitBuild built = buildFit(mortality, terms, weight, val_similarity, val_distance, include,
+    FitBuild built = buildFit(mortality, terms, weight, val_relevance, val_distance, include,
                               columnNames, columnTypes, constraints, encoding.mapping, exposure,
                               disjoint);
 
@@ -2524,7 +2524,7 @@ SEXP elementOrNull(const cpp11::list& list, const char* name)
 // dispatches (block, chunk) pairs as one flat task list; this is what gives it several blocks.
 //
 // `specs` is a list of lists, each with a `mortality` and an `overdispersion`, and optionally a
-// `weight`, an `include` and one of `val_similarity` / `val_distance`. The dataset, the time scale
+// `weight`, an `include` and one of `val_relevance` / `val_distance`. The dataset, the time scale
 // and the thread count are shared, which is the point: the columns are read and prepared once for
 // the whole batch.
 //
@@ -2586,7 +2586,7 @@ cpp11::list cpp_veil_run(
         builds.push_back(buildAev(
             cpp11::as_cpp<cpp11::list>(mortality),
             elementOrNull(spec, "weight"),
-            elementOrNull(spec, "val_similarity"),
+            elementOrNull(spec, "val_relevance"),
             elementOrNull(spec, "val_distance"),
             elementOrNull(spec, "include"),
             columnNames,

@@ -4,9 +4,6 @@
 #
 # Copyright (c) Tim Gordon
 
-# Reserved `.i$` field names that may not appear in an `it_expr`.
-it_reserved_fields <- c("E2R_start", "E2R_end", "E2R_died")
-
 # Parse an `it()` pronoun expression.
 #
 # @param expr  An unevaluated R expression, typically from [substitute()].
@@ -98,11 +95,8 @@ it_parse <- function(expr, env = parent.frame()) {
       # seen as a bare symbol.
       if (is_dot_i_dollar(e)) {
         field_nm <- as.character(e[[3L]])
-        if (field_nm %in% it_reserved_fields) {
-          set_error(sprintf(
-            "`.i$%s` is a reserved field and cannot be used in an `it_expr`",
-            field_nm
-          ))
+        if (it_is_reserved_field(field_nm)) {
+          set_error(sprintf(it_reserved_field_message, field_nm))
           return(e)
         }
         fields <<- union(fields, field_nm)

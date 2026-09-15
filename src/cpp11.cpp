@@ -20,10 +20,10 @@ extern "C" SEXP _logmu_cpp_matrix_q_to_log_mu(SEXP q_matrix) {
   END_CPP11
 }
 // R.cpp
-cpp11::doubles cpp_slow_lookup_log_mu(cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, int b_clicks, cpp11::integers t_clicks);
+                                                                                                                                                                                                                                                                                        cpp11::doubles cpp_slow_lookup_log_mu(cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, cpp11::integers b_clicks, cpp11::integers t_clicks);
 extern "C" SEXP _logmu_cpp_slow_lookup_log_mu(SEXP log_mu_matrix, SEXP x0_clicks, SEXP t0_clicks, SEXP b_clicks, SEXP t_clicks) {
   BEGIN_CPP11
-    return cpp11::as_sexp(cpp_slow_lookup_log_mu(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
+    return cpp11::as_sexp(cpp_slow_lookup_log_mu(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
   END_CPP11
 }
 // aev.cpp
@@ -259,17 +259,17 @@ extern "C" SEXP _logmu_cpp_veil_aev(SEXP mortality, SEXP weight, SEXP columns, S
   END_CPP11
 }
 // veil_for_R.cpp
-cpp11::list cpp_veil_fit(cpp11::list mortality, cpp11::list terms, cpp11::list betas, SEXP weight, SEXP val_similarity, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, bool keep_contributions, int threads);
-extern "C" SEXP _logmu_cpp_veil_fit(SEXP mortality, SEXP terms, SEXP betas, SEXP weight, SEXP val_similarity, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP keep_contributions, SEXP threads) {
+cpp11::list cpp_veil_fit(cpp11::list mortality, cpp11::list terms, cpp11::list betas, SEXP weight, SEXP val_relevance, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, bool keep_contributions, int threads);
+extern "C" SEXP _logmu_cpp_veil_fit(SEXP mortality, SEXP terms, SEXP betas, SEXP weight, SEXP val_relevance, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP keep_contributions, SEXP threads) {
   BEGIN_CPP11
-    return cpp11::as_sexp(cpp_veil_fit(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(betas), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_similarity), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<bool>>(keep_contributions), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
+    return cpp11::as_sexp(cpp_veil_fit(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(betas), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_relevance), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<bool>>(keep_contributions), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
   END_CPP11
 }
 // veil_for_R.cpp
-cpp11::list cpp_veil_fit_run(cpp11::list mortality, cpp11::list terms, SEXP weight, SEXP val_similarity, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, cpp11::doubles start, int max_iterations, double tolerance, double armijo, double max_halvings, double overdispersion, double z_scale, bool disjoint, int threads);
-extern "C" SEXP _logmu_cpp_veil_fit_run(SEXP mortality, SEXP terms, SEXP weight, SEXP val_similarity, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP start, SEXP max_iterations, SEXP tolerance, SEXP armijo, SEXP max_halvings, SEXP overdispersion, SEXP z_scale, SEXP disjoint, SEXP threads) {
+cpp11::list cpp_veil_fit_run(cpp11::list mortality, cpp11::list terms, SEXP weight, SEXP val_relevance, SEXP val_distance, cpp11::list columns, int time_scale, SEXP include, cpp11::doubles start, int max_iterations, double tolerance, double armijo, double max_halvings, double overdispersion, double z_scale, bool disjoint, int threads);
+extern "C" SEXP _logmu_cpp_veil_fit_run(SEXP mortality, SEXP terms, SEXP weight, SEXP val_relevance, SEXP val_distance, SEXP columns, SEXP time_scale, SEXP include, SEXP start, SEXP max_iterations, SEXP tolerance, SEXP armijo, SEXP max_halvings, SEXP overdispersion, SEXP z_scale, SEXP disjoint, SEXP threads) {
   BEGIN_CPP11
-    return cpp11::as_sexp(cpp_veil_fit_run(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_similarity), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(start), cpp11::as_cpp<cpp11::decay_t<int>>(max_iterations), cpp11::as_cpp<cpp11::decay_t<double>>(tolerance), cpp11::as_cpp<cpp11::decay_t<double>>(armijo), cpp11::as_cpp<cpp11::decay_t<double>>(max_halvings), cpp11::as_cpp<cpp11::decay_t<double>>(overdispersion), cpp11::as_cpp<cpp11::decay_t<double>>(z_scale), cpp11::as_cpp<cpp11::decay_t<bool>>(disjoint), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
+    return cpp11::as_sexp(cpp_veil_fit_run(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(mortality), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(terms), cpp11::as_cpp<cpp11::decay_t<SEXP>>(weight), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_relevance), cpp11::as_cpp<cpp11::decay_t<SEXP>>(val_distance), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<SEXP>>(include), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(start), cpp11::as_cpp<cpp11::decay_t<int>>(max_iterations), cpp11::as_cpp<cpp11::decay_t<double>>(tolerance), cpp11::as_cpp<cpp11::decay_t<double>>(armijo), cpp11::as_cpp<cpp11::decay_t<double>>(max_halvings), cpp11::as_cpp<cpp11::decay_t<double>>(overdispersion), cpp11::as_cpp<cpp11::decay_t<double>>(z_scale), cpp11::as_cpp<cpp11::decay_t<bool>>(disjoint), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
   END_CPP11
 }
 // veil_for_R.cpp

@@ -9,7 +9,7 @@
 # ============================================================================
 #
 # THERE IS NO NEW STATISTIC HERE. `fit()` already returns
-# `penalised_log_likelihood`, which is `L(beta_hat) - p` with
+# `L_P`, which is `L(beta_hat) - p` with
 # `p = Z^-1 tr(J I^-1)`, and that IS the selection criterion -- the AIC without
 # the factor of -2. What this function adds is the machinery that makes several
 # of those numbers comparable:
@@ -81,7 +81,7 @@ comparison_class <- "model_comparison"
 #'   it.
 #' @param weight A pronoun expression for the weight \eqn{w}, or `NULL` for
 #'   lives. Weights must not be negative.
-#' @param val_similarity,val_distance A pronoun expression for the second
+#' @param val_relevance,val_distance A pronoun expression for the second
 #'   weighting factor, in either spelling. At most one may be given.
 #' @param test_mortality The mortality on which the \eqn{Z} scale is measured,
 #'   once, for every candidate. See [fit()].
@@ -98,15 +98,15 @@ comparison_class <- "model_comparison"
 #' @param max_halvings The most times one step may be halved before a candidate
 #'   is abandoned.
 #' @param threads The number of worker threads.
-#' @param x A `model_comparison`.
+#' @param x,object A `model_comparison`.
 #' @param ... Ignored.
 #' @returns
 #' `compare_models()` returns a `model_comparison`, whose fields are `table` (the
-#' ranking, best first, with columns `k`, `log_likelihood`, `penalty`,
-#' `penalised_log_likelihood` and `status`), `fits` (the `fit` of each candidate,
+#' ranking, best first, with columns `L_P`, `L`, `p`, `k` and `status`), `fits` (the `fit` of each candidate,
 #' in the same order, `NULL` where one failed), `failures` (the diagnosis of each
 #' failure, named, empty where there were none), `Z`, `overdispersion`,
-#' `diagnostics` (the population and test-mortality numbers the header reports)
+#' `population` (the population and test-mortality numbers the header reports),
+#' `arguments` (what the comparison was run with, for [diagnose()])
 #' and `labels` (what was written for the include, the weight and the test
 #' mortality).
 #'
@@ -119,6 +119,11 @@ comparison_class <- "model_comparison"
 #' `is_model_comparison()` returns a scalar `logical`.
 #'
 #' `best_fit()` returns the `fit` of the highest-ranked candidate.
+#'
+#' `summary()` returns a `summary.model_comparison`: the shifted `table` as
+#' printed, the header's numbers, and in `fits` the [summary()][fit] of every
+#' converged candidate, best first. Printing it shows the ranking and then each
+#' candidate's coefficient table and correlation matrix.
 #' @examples
 #' data <- exp_data(
 #'   list(
@@ -153,7 +158,7 @@ compare_models <- function(exp_data,
                            models,
                            include = NULL,
                            weight = NULL,
-                           val_similarity = NULL,
+                           val_relevance = NULL,
                            val_distance = NULL,
                            test_mortality = default_mortality(),
                            Z = NULL,
@@ -177,7 +182,7 @@ compare_models <- function(exp_data,
   # value test cannot tell `weight = NULL` from no weight.
   caller <- parent.frame()
   weight_ast <- aev_optional_ast(substitute(weight), missing(weight), caller)
-  similarity_ast <- aev_optional_ast(substitute(val_similarity), missing(val_similarity), caller)
+  relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
   test_ast <- fit_test_mortality_ast(substitute(test_mortality), missing(test_mortality),
                                      Z, caller)
@@ -195,9 +200,10 @@ compare_models <- function(exp_data,
   # ONCE, FOR EVERY CANDIDATE. This is the whole mechanical reason this function
   # exists rather than a loop over `fit()` in user code, and it is also where the
   # header's population numbers come from.
-  diagnostics <- fit_diagnostics(test_ast, weight_ast, include, columns,
-                                 resolved$time_scale_clicks, threads)
-  scale <- resolve_Z(Z, weight_ast, diagnostics)
+  population <- fit_population(test_ast, weight_ast, include, columns,
+                               resolved$time_scale_clicks, threads)
+  scale <- resolve_Z(Z, population)
+  arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
   call_labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality),
                                  substitute(include), include, weight_ast)
 
@@ -213,13 +219,13 @@ compare_models <- function(exp_data,
   # `unname()` so the runs carry no names into the table's columns; the labels are
   # the row names and are applied once, in `new_comparison()`.
   runs <- lapply(unname(models), function(model) {
-    fit_engine_run(model, include, weight_ast, similarity_ast, distance_ast,
+    fit_engine_run(model, include, weight_ast, relevance_ast, distance_ast,
                    columns, resolved, scale, NULL,
                    L_tolerance, armijo, max_iterations, max_halvings, threads)
   })
 
   new_comparison(runs, models, labels, scale, resolved$overdispersion, L_tolerance,
-                 diagnostics, call_labels)
+                 population, arguments, call_labels)
 }
 
 # ---- the candidates --------------------------------------------------------
@@ -268,14 +274,14 @@ comparison_labels <- function(models) {
 # ---- the result ------------------------------------------------------------
 
 new_comparison <- function(runs, models, labels, Z, overdispersion, L_tolerance,
-                           diagnostics, call_labels) {
+                           population, arguments, call_labels) {
 
   converged <- vapply(runs, function(run) identical(run$status, "converged"),
                       logical(1L))
 
   fits <- vector("list", length(runs))
   fits[converged] <- lapply(which(converged), function(at) {
-    new_fit(runs[[at]], models[[at]], Z, overdispersion, diagnostics, call_labels)
+    new_fit(runs[[at]], models[[at]], Z, overdispersion, population, arguments, call_labels)
   })
   names(fits) <- labels
 
@@ -321,10 +327,10 @@ new_comparison <- function(runs, models, labels, Z, overdispersion, L_tolerance,
   # numbers are large and uninformative -- but the table keeps what was actually
   # computed, so nobody needs an argument to get at it.
   table <- data.frame(
+    L_P = penalised,
+    L = log_likelihood,
+    p = penalty,
     k = unname(vapply(models, function(model) length(model$covariates), integer(1L))),
-    log_likelihood = log_likelihood,
-    penalty = penalty,
-    penalised_log_likelihood = penalised,
     status = vapply(runs, function(run) run$status, character(1L)),
     row.names = labels,
     stringsAsFactors = FALSE
@@ -342,7 +348,8 @@ new_comparison <- function(runs, models, labels, Z, overdispersion, L_tolerance,
          failures = failures,
          Z = Z,
          overdispersion = overdispersion,
-         diagnostics = diagnostics,
+         population = population,
+         arguments = arguments,
          labels = call_labels),
     class = comparison_class
   )
@@ -352,7 +359,7 @@ new_comparison <- function(runs, models, labels, Z, overdispersion, L_tolerance,
 # maximum to deduct and the shown columns are `NA` throughout, which is the
 # honest answer rather than an arbitrary winner reading zero.
 comparison_best_L_P <- function(x) {
-  penalised <- x$table$penalised_log_likelihood
+  penalised <- x$table$L_P
   if (all(is.na(penalised))) return(NA_real_)
   max(penalised, na.rm = TRUE)
 }
@@ -369,9 +376,9 @@ comparison_shown_table <- function(x) {
   best <- comparison_best_L_P(x)
 
   shown <- data.frame(
-    L_P = x$table$penalised_log_likelihood - best,
-    L = x$table$log_likelihood - best,
-    p = x$table$penalty,
+    L_P = x$table$L_P - best,
+    L = x$table$L - best,
+    p = x$table$p,
     k = x$table$k,
     row.names = rownames(x$table)
   )
@@ -406,13 +413,64 @@ best_fit <- function(x) {
 # `AIC()` penalises by the parameter count, and `p` equals that only where the
 # weight is an indicator.
 
+# THREE DECIMALS, FIXED. One unit of L is about one parameter's worth, so a
+# third decimal is already noise, and `data.frame`'s own printing -- seven
+# significant figures, chosen per column -- gave `0.00000` beside `3.000000`
+# beside `2.9811832`. `k` is an integer and stays one; `status`, when shown, is
+# text. Formatting is done here rather than in `comparison_shown_table()` so
+# the arithmetic stays testable on numbers.
+comparison_formatted_table <- function(shown) {
+  for (column in c("L_P", "L", "p")) {
+    shown[[column]] <- formatC(shown[[column]], format = "f", digits = 3L)
+  }
+  shown
+}
+
 #' @rdname compare_models
 #' @export
-print.model_comparison <- function(x, ...) {
-  candidates <- nrow(x$table)
+summary.model_comparison <- function(object, ...) {
+  structure(
+    list(
+      candidates = nrow(object$table),
+      converged = nrow(object$table) - length(object$failures),
+      labels = object$labels,
+      population = object$population,
+      Z = object$Z,
+      overdispersion = object$overdispersion,
+      max_L_P = comparison_best_L_P(object),
+      table = comparison_shown_table(object),
+      fits = lapply(object$fits, summary),
+      failures = object$failures
+    ),
+    class = "summary.model_comparison"
+  )
+}
+
+# THE SUMMARY SAYS WHAT THE PRINT DOES AND THEN GOES THROUGH THE CANDIDATES,
+# best first, each with its coefficient table and correlation matrix -- the
+# standard diagnostics of every candidate rather than of the winner alone. The
+# print stops at the ranking because fifty candidates' coefficient tables are
+# not what a glance at a comparison is for.
+#' @rdname compare_models
+#' @export
+print.summary.model_comparison <- function(x, ...) {
+  cat_comparison_ranking(x)
+
+  for (label in names(x$fits)) {
+    cat(sprintf("\n---- %s\n", label))
+    cat("\n")
+    print(x$fits[[label]]$coefficients)
+    cat_correlation(x$fits[[label]]$correlation)
+  }
+  invisible(x)
+}
+
+# The ranking as both `print()` and `print(summary())` open with it. Reads the
+# fields a `summary.model_comparison` carries, so a comparison is summarised
+# first.
+cat_comparison_ranking <- function(x) {
   cat(sprintf("<model_comparison: %d candidate%s, %d converged>\n",
-              candidates, if (candidates == 1L) "" else "s",
-              candidates - length(x$failures)))
+              x$candidates, if (x$candidates == 1L) "" else "s", x$converged))
 
   cat_analysis_header(x)
 
@@ -420,10 +478,10 @@ print.model_comparison <- function(x, ...) {
   # That is what keeps `L - L_P = p` true row by row, so a reader can check the
   # arithmetic on the face of the table -- which deducting each column's own
   # maximum would break. `L_P` is then 0 at the top and negative below.
-  cat(sprintf("  max L_P         %s\n", format(comparison_best_L_P(x))))
+  cat(sprintf("  max L_P         %s\n", format(x$max_L_P)))
 
   cat("\n")
-  print(comparison_shown_table(x))
+  print(comparison_formatted_table(x$table))
 
   # THE DIAGNOSIS IS SHOWN, NOT JUST THE STATUS. `fit()` puts real effort into
   # saying what went wrong and what to do about it, and a comparison that
@@ -431,6 +489,12 @@ print.model_comparison <- function(x, ...) {
   for (label in names(x$failures)) {
     cat(sprintf("\n%s: %s\n", label, x$failures[[label]]))
   }
+  invisible(x)
+}
 
+#' @rdname compare_models
+#' @export
+print.model_comparison <- function(x, ...) {
+  cat_comparison_ranking(summary(x))
   invisible(x)
 }

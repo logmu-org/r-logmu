@@ -4,12 +4,12 @@
 #
 # Copyright (c) Tim Gordon
 
-# Tests for `val_similarity` and `val_distance`, the second weighting factor.
+# Tests for `val_relevance` and `val_distance`, the second weighting factor.
 #
-# THE DEFINING PROPERTY, and what most of these pin, is that the similarity is
+# THE DEFINING PROPERTY, and what most of these pin, is that the relevance is
 # LINEAR IN ALL THREE OUTPUTS while the weight is squared in V. Halving the
-# similarity halves V; halving the weight quarters it. Anything that folded the
-# similarity into the weight would pass a test of E alone and fail here.
+# relevance halves V; halving the weight quarters it. Anything that folded the
+# relevance into the weight would pass a test of E alone and fail here.
 
 data <- exp_data(
   list(
@@ -29,27 +29,27 @@ flat <- mortality_const(log_mu = -4)
 
 parts <- function(x) c(x$A, x$E, x$V)
 
-test_that("similarity scales A, E and V alike", {
+test_that("relevance scales A, E and V alike", {
   plain <- aev(data, mortality = flat, overdispersion = 1)
-  half  <- aev(data, mortality = flat, overdispersion = 1, val_similarity = 0.5)
+  half  <- aev(data, mortality = flat, overdispersion = 1, val_relevance = 0.5)
 
   expect_equal(parts(half), parts(plain) / 2)
 })
 
 test_that("a distance is the same quantity written the other way round", {
-  by_similarity <- aev(data, mortality = flat, overdispersion = 1, val_similarity = 0.5)
+  by_relevance <- aev(data, mortality = flat, overdispersion = 1, val_relevance = 0.5)
   by_distance  <- aev(data, mortality = flat, overdispersion = 1, val_distance = log(2))
 
-  expect_equal(parts(by_distance), parts(by_similarity))
+  expect_equal(parts(by_distance), parts(by_relevance))
 })
 
-test_that("similarity is linear in V where the weight is squared", {
+test_that("relevance is linear in V where the weight is squared", {
   # THE TEST THAT SEPARATES THE TWO FACTORS. Doubling the weight doubles E and
-  # quadruples V. Halving the similarity halves both.
+  # quadruples V. Halving the relevance halves both.
   plain    <- aev(data, mortality = flat, overdispersion = 1, weight = .i$pension)
   weighted <- aev(data, mortality = flat, overdispersion = 1, weight = 2 * .i$pension)
   similar  <- aev(data, mortality = flat, overdispersion = 1, weight = .i$pension,
-                  val_similarity = 0.5)
+                  val_relevance = 0.5)
 
   expect_equal(weighted$E, 2 * plain$E)
   expect_equal(weighted$V, 4 * plain$V)
@@ -58,22 +58,22 @@ test_that("similarity is linear in V where the weight is squared", {
   expect_equal(similar$V, plain$V / 2)
 })
 
-test_that("an indicator weight still gives V = E when a similarity is applied", {
-  # THE WITNESS THAT THE SIMILARITY IS NOT FOLDED INTO THE WEIGHT. V collapses
+test_that("an indicator weight still gives V = E when a relevance is applied", {
+  # THE WITNESS THAT THE RELEVANCE IS NOT FOLDED INTO THE WEIGHT. V collapses
   # into E because `w * w` simplifies to `w` for an indicator. Multiply the
-  # similarity in first and `0.5 * male` is no longer an indicator, so its square
+  # relevance in first and `0.5 * male` is no longer an indicator, so its square
   # would be a quarter and V would come back at half of E.
   indicator <- aev(data, mortality = flat, overdispersion = 1, weight = .i$male,
-                   val_similarity = 0.5)
+                   val_relevance = 0.5)
 
   expect_equal(indicator$V, indicator$E)
 })
 
-test_that("a similarity of one, or a distance of zero, changes nothing", {
+test_that("a relevance of one, or a distance of zero, changes nothing", {
   plain <- aev(data, mortality = flat, overdispersion = 1, weight = .i$pension)
 
   expect_equal(parts(aev(data, mortality = flat, overdispersion = 1,
-                         weight = .i$pension, val_similarity = 1)),
+                         weight = .i$pension, val_relevance = 1)),
                parts(plain))
   expect_equal(parts(aev(data, mortality = flat, overdispersion = 1,
                          weight = .i$pension, val_distance = 0)),
@@ -97,10 +97,10 @@ test_that("a distance may vary with time, and A takes its value at the death", {
   )))
 })
 
-test_that("similarity reaches every element of a breakdown", {
+test_that("relevance reaches every element of a breakdown", {
   plain <- aev(data, mortality = flat, overdispersion = 1,
                breakdown = bands(.i$pension, thresholds = 10000))
-  half  <- aev(data, mortality = flat, overdispersion = 1, val_similarity = 0.5,
+  half  <- aev(data, mortality = flat, overdispersion = 1, val_relevance = 0.5,
                breakdown = bands(.i$pension, thresholds = 10000))
 
   expect_equal(half$E, plain$E / 2)
@@ -109,34 +109,34 @@ test_that("similarity reaches every element of a breakdown", {
 
 test_that("the two spellings are one quantity, so only one may be given", {
   expect_error(
-    aev(data, mortality = flat, overdispersion = 1, val_similarity = 0.5, val_distance = 1),
+    aev(data, mortality = flat, overdispersion = 1, val_relevance = 0.5, val_distance = 1),
     "not both"
   )
 })
 
 # ---- the bound, checked analytically ---------------------------------------
 
-test_that("a similarity certainly outside [0, 1] is refused before any record is read", {
-  expect_error(aev(data, mortality = flat, overdispersion = 1, val_similarity = 2),
+test_that("a relevance certainly outside [0, 1] is refused before any record is read", {
+  expect_error(aev(data, mortality = flat, overdispersion = 1, val_relevance = 2),
                "always above 1")
-  expect_error(aev(data, mortality = flat, overdispersion = 1, val_similarity = -0.5),
+  expect_error(aev(data, mortality = flat, overdispersion = 1, val_relevance = -0.5),
                "always below 0")
 
-  # Said in the spelling the user wrote: a negative distance is a similarity
-  # above one, but they did not write a similarity.
+  # Said in the spelling the user wrote: a negative distance is a relevance
+  # above one, but they did not write a relevance.
   expect_error(aev(data, mortality = flat, overdispersion = 1, val_distance = -1),
                "`val_distance` cannot be negative")
 })
 
 test_that("the bound is checked against the column's scanned range, not just literals", {
-  # `pension` runs from 5000 to 30000, so no record could ever give a similarity
+  # `pension` runs from 5000 to 30000, so no record could ever give a relevance
   # in range. That is settled from the scan, with nothing evaluated.
-  expect_error(aev(data, mortality = flat, overdispersion = 1, val_similarity = .i$pension),
+  expect_error(aev(data, mortality = flat, overdispersion = 1, val_relevance = .i$pension),
                "always above 1")
 
   # And a column that does lie in range passes, or the test above would hold for
   # the wrong reason.
-  expect_silent(aev(data, mortality = flat, overdispersion = 1, val_similarity = .i$fraction))
+  expect_silent(aev(data, mortality = flat, overdispersion = 1, val_relevance = .i$fraction))
 })
 
 test_that("a range that merely permits a violation is accepted", {
@@ -180,7 +180,7 @@ test_that("the same kernel is accepted over data it suits", {
 
 # ---- through a batch -------------------------------------------------------
 
-test_that("similarity and distance default from a batch", {
+test_that("relevance and distance default from a batch", {
   b <- batch(
     .exp_data = data, .overdispersion = 1, .val_distance = log(2),
     inherited = aev(mortality = flat)
@@ -192,15 +192,15 @@ test_that("similarity and distance default from a batch", {
 
 test_that("an analysis naming either spelling takes neither batch default", {
   # Injected argument by argument, a `.val_distance` default would join the
-  # analysis's own `val_similarity` and make the pair that is refused -- a confusing
+  # analysis's own `val_relevance` and make the pair that is refused -- a confusing
   # way to be told a default exists.
   b <- batch(
     .exp_data = data, .overdispersion = 1, .val_distance = log(2),
-    own = aev(mortality = flat, val_similarity = 0.25)
+    own = aev(mortality = flat, val_relevance = 0.25)
   )
 
   expect_identical(b$own,
-                   aev(data, mortality = flat, overdispersion = 1, val_similarity = 0.25))
+                   aev(data, mortality = flat, overdispersion = 1, val_relevance = 0.25))
 })
 
 test_that("a batched analysis giving both spellings is named in the complaint", {
@@ -210,14 +210,14 @@ test_that("a batched analysis giving both spellings is named in the complaint", 
   expect_error(
     batch(.exp_data = data, .overdispersion = 1,
           fine    = aev(mortality = flat),
-          muddled = aev(mortality = flat, val_similarity = 0.5, val_distance = 1)),
+          muddled = aev(mortality = flat, val_relevance = 0.5, val_distance = 1)),
     "`muddled` gives both"
   )
 })
 
 test_that("a batch may not give both spellings either", {
   expect_error(
-    batch(.exp_data = data, .overdispersion = 1, .val_similarity = 0.5, .val_distance = 1,
+    batch(.exp_data = data, .overdispersion = 1, .val_relevance = 0.5, .val_distance = 1,
           a = aev(mortality = flat)),
     "not both"
   )

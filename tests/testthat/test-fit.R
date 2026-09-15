@@ -153,8 +153,8 @@ test_that("the variance and the penalty are what the A/E says they must be", {
   expect_equal(unname(f$variance[1, 1]), 1 / a$A, tolerance = 2 * beta_bound(a$A))
 
   # `p = k` EXACTLY where `w^2 = w`, so for lives, and then L_P is -AIC/2.
-  expect_equal(f$penalty, 1)
-  expect_equal(f$penalised_log_likelihood, f$log_likelihood - 1)
+  expect_equal(f$p, 1)
+  expect_equal(f$L_P, f$L - 1)
 })
 
 test_that("a time-varying covariate fits, and both score equations come out zero", {
@@ -222,7 +222,7 @@ test_that("disjoint indicators fit group by group, with a diagonal variance", {
 
   off <- f$variance[upper.tri(f$variance)]
   expect_equal(off, rep(0, 3L))
-  expect_equal(f$penalty, 3)
+  expect_equal(f$p, 3)
   expect_identical(dimnames(f$variance), list(c("one", "two", "three"),
                                               c("one", "two", "three")))
 })
@@ -240,8 +240,8 @@ test_that("disjoint() gives a BIT-IDENTICAL fit, by a shorter route", {
   b <- fit(group_data, model(ref_mortality = reference, covariates = asserted), settings = basis)
 
   expect_identical(unname(a$beta), unname(b$beta))
-  expect_identical(a$log_likelihood, b$log_likelihood)
-  expect_identical(a$penalty, b$penalty)
+  expect_identical(a$L, b$L)
+  expect_identical(a$p, b$p)
   expect_identical(unname(a$variance), unname(b$variance))
 })
 
@@ -277,22 +277,30 @@ test_that("disjointness survives multiplication by a shape, and is still verifie
   expect_identical(unname(f$beta), unname(g$beta))
 })
 
+test_that("residuals() on a fit says where residuals come from", {
+  # Without a method `residuals()` falls through to `residuals.default`, which
+  # returns a silent NULL. A fit keeps no data, so the answer is a message
+  # pointing at `aev()` on the fitted mortality.
+  f <- fit(fit_data, intercept_model, settings = basis)
+  expect_error(residuals(f), "keeps no data")
+  expect_error(residuals(f), "aev\\(exp_data, mortality = fitted\\$mortality")
+})
+
 # ---- the Z scale -----------------------------------------------------------
 
-test_that("the Z scale is one where `w^2 = w` can be shown", {
-  # No weight, the literal 1, and an expression an operator has forced to be
-  # logical. All three give `Z = Ew^2/Ew = 1` exactly.
+test_that("the Z scale is exactly one where `w^2 = w`", {
+  # MEASURED, NOT ASSUMED. There is no structural shortcut in R any more; Z is
+  # read from the population pass in every case, and these are `expect_identical()`
+  # because the engine's answer is 1 to the bit. That includes the bare logical
+  # column, which R could never prove from the expression and the engine proves
+  # from the data.
   expect_identical(fit(fit_data, intercept_model, settings = basis)$Z, 1)
   expect_identical(fit(fit_data, intercept_model, weight = 1, settings = basis)$Z, 1)
   expect_identical(
     fit(fit_data, intercept_model, weight = .i$pension > 10000, settings = basis)$Z,
     1
   )
-
-  # A bare logical column is an indicator in fact and unprovable from the
-  # expression, because a column's type is unknown until the data arrives. So it
-  # is measured rather than assumed -- and the measurement gives 1 anyway.
-  expect_equal(fit(fit_data, intercept_model, weight = .i$male, settings = basis)$Z, 1)
+  expect_identical(fit(fit_data, intercept_model, weight = .i$male, settings = basis)$Z, 1)
 })
 
 test_that("a fit makes exactly one pass outside the iteration, whatever the weight", {
@@ -320,27 +328,49 @@ test_that("a fit makes exactly one pass outside the iteration, whatever the weig
 })
 
 test_that("the engine makes `Ew^2 = Ew` exactly where `w^2 = w`", {
-  # THIS IS WHAT THE `weight_squares_to_itself()` SHORTCUT NOW RESTS ON, and it is
-  # the engine's property rather than R's: `Ew` and `Ew^2` accumulate identical
-  # per-record values in the same order, so their ratio is 1 to the bit and not
-  # merely to a tolerance. The shortcut used to earn its place by avoiding a pass;
-  # now that the diagnostics run regardless, the only thing left for it to protect
-  # is exactness -- and IF THIS TEST EVER FAILS the shortcut is load-bearing again.
-  columns <- exp_data_columns(fit_data)
+  # THIS IS WHAT `p = k` FOR AN INDICATOR WEIGHT RESTS ON, and it is the engine's
+  # property rather than R's: `passFoldIndicatorSquares` rewrites `w * w` to `w`
+  # wherever `w` is zero or one, sharing then makes `Ew^2` the same accumulator
+  # as `Ew`, and the ratio is 1 to the bit rather than to a tolerance. R used to
+  # carry a structural shortcut returning 1 for the first three cases below; it
+  # was deleted on 2026-09-14 because the engine proves strictly more than it
+  # could. IF THIS TEST EVER FAILS that shortcut is load-bearing again.
+  zero_one_data <- exp_data(
+    list(
+      birth     = datey::datey(c(1945, 1950, 1955, 1940, 1948)),
+      pension   = c(5000, 12000, 30000, 8000, 15000),
+      male      = c(TRUE, FALSE, TRUE, FALSE, TRUE),
+      flag      = c(1, 0, 1, 1, 0),
+      half      = c(1, 0.5, 1, 1, 0),
+      E2R_start = datey::datey(rep(2015, 5)),
+      E2R_end   = datey::datey(c(2020, 2020, 2018, 2020, 2019)),
+      E2R_died  = c(FALSE, FALSE, TRUE, FALSE, TRUE)
+    ),
+    exp_start = datey::datey(2015),
+    exp_end   = datey::datey(2020)
+  )
+  columns <- exp_data_columns(zero_one_data)
   clicks <- time_scale_clicks(1 / 4)
   test_ast <- it_obj(default_mortality())
 
   measured <- function(weight_ast) {
-    d <- fit_diagnostics(test_ast, weight_ast, NULL, columns, clicks, 1L)
+    d <- fit_population(test_ast, weight_ast, NULL, columns, clicks, 1L)
     d$Ew2 / d$Ew
   }
 
+  # What R could prove from the expression alone.
   expect_identical(measured(NULL), 1)
   expect_identical(measured(it_capture(quote(1), environment())), 1)
   expect_identical(measured(it_capture(quote(.i$pension > 10000), environment())), 1)
 
-  # The control: with an amount weight it is nowhere near 1, so the comparison
-  # above is not vacuous.
+  # What only the engine can prove, because it needs the data: a bare logical
+  # column, and a double column the scan finds holding nothing but 0 and 1.
+  expect_identical(measured(it_capture(quote(.i$male), environment())), 1)
+  expect_identical(measured(it_capture(quote(.i$flag), environment())), 1)
+
+  # The controls. One value of 0.5 in an otherwise 0/1 column stops the fold,
+  # and an amount weight is nowhere near 1, so none of the above is vacuous.
+  expect_false(isTRUE(all.equal(measured(it_capture(quote(.i$half), environment())), 1)))
   expect_gt(measured(it_capture(quote(.i$pension), environment())), 100)
 })
 
@@ -357,13 +387,12 @@ test_that("an amount weight uses the default mortality rather than refusing", {
   expect_false(isTRUE(all.equal(f$Z, 1)))
 })
 
-test_that("an explicit Z wins even where one would have been provable", {
-  # THE ORDER OF THE TWO CHECKS. `Z` is read before the `w^2 = w` shortcut,
-  # so a caller forcing a common scale across a set of runs gets the number they
-  # asked for rather than the 1 this particular run could have proved.
+test_that("an explicit Z wins even where the measurement would have given one", {
+  # A caller forcing a common scale across a set of runs gets the number they
+  # asked for rather than the 1 this particular run measures.
   f <- fit(fit_data, intercept_model, Z = 4, settings = basis)
   expect_identical(f$Z, 4)
-  expect_equal(f$penalty, 1 / 4)
+  expect_equal(f$p, 1 / 4)
 })
 
 test_that("a test mortality and an explicit Z are alternatives, not a pair", {
@@ -414,8 +443,8 @@ test_that("Z rescales L and p but never beta", {
   expect_lt(abs(unname(one$beta) - target), beta_bound(weighted$A, Z = 1000))
   expect_lt(abs(unname(two$beta) - target), beta_bound(weighted$A, Z = 2000))
 
-  expect_equal(two$log_likelihood, one$log_likelihood / 2, tolerance = 1e-6)
-  expect_equal(two$penalty, one$penalty / 2, tolerance = 1e-6)
+  expect_equal(two$L, one$L / 2, tolerance = 1e-6)
+  expect_equal(two$p, one$p / 2, tolerance = 1e-6)
 })
 
 test_that("a Z that is not a usable scale is refused", {
@@ -444,11 +473,11 @@ test_that("overdispersion scales L and the variance but never beta", {
   target <- log(a$A / a$E)
   expect_lt(abs(unname(one$beta) - target), beta_bound(a$A))
   expect_lt(abs(unname(two$beta) - target), beta_bound(a$A, overdispersion = 2))
-  expect_equal(two$log_likelihood, one$log_likelihood / 2, tolerance = 1e-5)
+  expect_equal(two$L, one$L / 2, tolerance = 1e-5)
   expect_equal(two$variance[1, 1], one$variance[1, 1] * 2, tolerance = 1e-5)
 
   # Omega cancels in `J I^-1`, so the penalty does not move.
-  expect_equal(two$penalty, one$penalty, tolerance = 1e-5)
+  expect_equal(two$p, one$p, tolerance = 1e-5)
   expect_identical(two$overdispersion, 2)
 })
 
@@ -566,6 +595,80 @@ test_that("an unnamed covariate is labelled by the expression the user wrote", {
   expect_identical(names(coef(f)), ".i$male")
 })
 
+test_that("the coefficient table gives both widths, each defined", {
+  # `std_error` is one standard deviation, `conf_95pc` the 95% half-width the
+  # A/E charts draw -- the same multiplier, so the table and the chart agree.
+  f <- fit(group_data, model(reference, covariates(a = .i$group == "a", b = .i$group == "b")),
+           settings = basis)
+  table <- fit_coefficient_table(f)
+
+  expect_identical(names(table), c("estimate", "std_error", "conf_95pc"))
+  expect_identical(rownames(table), c("a", "b"))
+  expect_equal(table$estimate, unname(f$beta))
+  expect_equal(table$std_error, unname(sqrt(diag(f$variance))))
+  expect_equal(table$conf_95pc, aev_z_975 * table$std_error)
+  expect_equal(table$conf_95pc / table$std_error, rep(1.9599639845400540, 2L))
+})
+
+test_that("summary() of a fit carries the tables and a fit prints as its summary", {
+  f <- fit(group_data, model(reference, covariates(a = .i$group == "a", b = .i$group == "b",
+                                                  age = .x - 70)),
+           settings = basis)
+  s <- summary(f)
+
+  expect_s3_class(s, "summary.fit")
+  expect_identical(s$coefficients, fit_coefficient_table(f))
+  expect_identical(s$terms, 3L)
+  expect_identical(s$L_P, f$L_P)
+
+  # THE CORRELATION IS THE COVARIANCE SCALED BY ITS OWN STANDARD ERRORS: ones on
+  # the diagonal, symmetric, and every entry within [-1, 1] whatever the units
+  # of the coefficients -- a shift for `a`, per year for `age`.
+  expect_equal(unname(diag(s$correlation)), rep(1, 3L))
+  expect_equal(s$correlation, t(s$correlation))
+  expect_true(all(abs(s$correlation) <= 1 + 1e-12))
+  errors <- sqrt(diag(f$variance))
+  expect_equal(s$correlation * outer(errors, errors), f$variance)
+  expect_identical(dimnames(s$correlation), dimnames(f$variance))
+
+  # One view: the fit prints exactly what its summary prints.
+  expect_identical(capture.output(print(f)), capture.output(print(s)))
+})
+
+test_that("the correlation prints as a strictly lower triangle, and not for one term", {
+  f <- fit(group_data, model(reference, covariates(a = .i$group == "a", b = .i$group == "b",
+                                                  age = .x - 70)),
+           settings = basis)
+  printed <- capture.output(print(f))
+  at <- which(printed == "correlation")
+  expect_length(at, 1L)
+
+  # Header row names the first two terms, rows are the last two; the upper
+  # triangle and the diagonal are blank, so the `b` row has one number and the
+  # `age` row two.
+  expect_match(printed[[at + 1L]], "^ +a +b$")
+  expect_match(printed[[at + 2L]], "^b +-?[0-9]\\.[0-9]{2} *$")
+  expect_match(printed[[at + 3L]], "^age +-?[0-9]\\.[0-9]{2} +-?[0-9]\\.[0-9]{2}$")
+
+  one <- fit(fit_data, intercept_model, settings = basis)
+  expect_false(any(capture.output(print(one)) == "correlation"))
+})
+
+test_that("the sign in the header is a real plus-minus only where the session can show it", {
+  # `\u00b1` where the session is UTF-8, which R 4.2+ is on every platform; the
+  # ASCII fallback is what a C-locale check box sees. Both branches are exercised
+  # by mocking the locale query rather than by changing the locale.
+  local_mocked_bindings(l10n_info = function() list(`UTF-8` = TRUE), .package = "base")
+  expect_identical(plus_minus(), "\u00b1")
+  expect_match(capture.output(print(fit(fit_data, intercept_model, settings = basis))),
+               "\u00b1 [0-9.]+ \\(1 sd\\)", all = FALSE)
+
+  local_mocked_bindings(l10n_info = function() list(`UTF-8` = FALSE), .package = "base")
+  expect_identical(plus_minus(), "+/-")
+  expect_match(capture.output(print(fit(fit_data, intercept_model, settings = basis))),
+               "\\+/- [0-9.]+ \\(1 sd\\)", all = FALSE)
+})
+
 test_that("a fit prints its estimates, its scale and its cost", {
   f <- fit(fit_data, intercept_model, settings = basis)
   printed <- paste(capture.output(print(f)), collapse = "\n")
@@ -573,6 +676,9 @@ test_that("a fit prints its estimates, its scale and its cost", {
   expect_match(printed, "<fit: 1 term")
   expect_match(printed, "estimate")
   expect_match(printed, "std_error")
+  expect_match(printed, "conf_95pc")
+  expect_match(printed, "(1 sd) or", fixed = TRUE)
+  expect_match(printed, "(95%), at overdispersion 1", fixed = TRUE)
   # A lone fit shows the three likelihood numbers unshifted, with `k`.
   expect_match(printed, "L -[0-9.]+   p [0-9.]+   L_P -[0-9.]+   k 1")
   # The Z scale is reported because it is the unit the numbers are quoted in.

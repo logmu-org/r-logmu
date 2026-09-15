@@ -34,8 +34,23 @@
 # evaluated once, in the supplied environment, and stored as a single `lit`.
 # So `1 + 2 * 3` becomes `lit(7)`, while `.i$pension > 0` stays symbolic.
 
-# `.i$` fields that user code may never reference -- the E2R columns are hidden.
-it_reserved_fields <- c("E2R_start", "E2R_end", "E2R_died")
+# `.i$` fields that user code may never reference: the record `count`, and the
+# whole `E2R_` prefix rather than the three columns an `exp_data` carries today,
+# so that a column such as `E2R_cap` -- which `simulate()` reads and then drops
+# -- is as unreachable as `E2R_died`, and the next such column needs no change
+# here. CASE-INSENSITIVE, because `exp_data()` recognises its special columns
+# that way, so a column it accepted as `COUNT` is still the count. `birth` and
+# `uid` are special to `exp_data()` too, but both may legitimately be read.
+# One message, used by both parsers, so they cannot drift.
+it_reserved_names <- "count"
+it_reserved_prefix <- "E2R_"
+it_reserved_field_message <-
+  "`.i$%s` is a reserved field: the name `count` and names beginning `E2R_` are reserved (case insensitive)."
+
+it_is_reserved_field <- function(name) {
+  lowered <- tolower(name)
+  lowered %in% it_reserved_names || startsWith(lowered, tolower(it_reserved_prefix))
+}
 
 # ---- node constructors -----------------------------------------------------
 
@@ -101,9 +116,8 @@ it_field_name <- function(e) {
   } else {
     stop("`.i$` must be followed by a field name, as in `.i$pension`.", call. = FALSE)
   }
-  if (name %in% it_reserved_fields) {
-    stop(sprintf("`.i$%s` is a reserved field and cannot be used in a pronoun expression.", name),
-         call. = FALSE)
+  if (it_is_reserved_field(name)) {
+    stop(sprintf(it_reserved_field_message, name), call. = FALSE)
   }
   name
 }
@@ -458,12 +472,6 @@ it_is_logical <- function(node) {
   )
 }
 
-# An indicator is a logical-valued expression that does not depend on time.
-# This is the structural check that lets `aev()` know weight is {0,1} so V = E.
-it_is_indicator <- function(node) {
-  it_is_logical(node) && !it_uses_t(node)
-}
-
 # The values of every obj leaf in the tree (the referenced concept objects).
 it_obj_leaves <- function(node) {
   switch(node$kind,
@@ -513,12 +521,19 @@ it_eval <- function(node, .i, .t = NULL, obj_fn = function(o, .i, .t) o) {
       .i[[node$name]]
     },
     call = {
-      # `if`/`ifelse` are a per-individual selection (their condition is
-      # time-invariant, hence scalar), not a per-element vector op.
+      # `if`/`ifelse` select PER INDIVIDUAL -- the condition is time-invariant,
+      # so it is one value per individual -- and `.i` may hold many individuals
+      # at once, which is how `simulate()` evaluates a mortality over a whole
+      # population click by click. Both branches are evaluated and the
+      # condition picks between them element by element, recycling the shorter
+      # of the three as R's own `ifelse()` would. A one-individual call is the
+      # length-one case of the same rule. An NA condition gives NA, the
+      # missing-value policy being that a NaN flows rather than being decided.
       if (node$fn %in% c("if", "ifelse")) {
-        cond <- it_eval(node$args[[1L]], .i = .i, .t = .t, obj_fn = obj_fn)
-        branch <- if (isTRUE(as.logical(cond))) node$args[[2L]] else node$args[[3L]]
-        return(it_eval(branch, .i = .i, .t = .t, obj_fn = obj_fn))
+        cond <- as.logical(it_eval(node$args[[1L]], .i = .i, .t = .t, obj_fn = obj_fn))
+        yes <- it_eval(node$args[[2L]], .i = .i, .t = .t, obj_fn = obj_fn)
+        no <- it_eval(node$args[[3L]], .i = .i, .t = .t, obj_fn = obj_fn)
+        return(it_select(cond, yes, no))
       }
       args <- lapply(node$args, it_eval, .i = .i, .t = .t, obj_fn = obj_fn)
       # Scalar semantics: `max`/`min` are element-wise (== scalar-per-time),
@@ -530,6 +545,27 @@ it_eval <- function(node, .i, .t = NULL, obj_fn = function(o, .i, .t) o) {
     },
     stop(sprintf("Cannot evaluate an AST node of kind `%s`.", node$kind), call. = FALSE)
   )
+}
+
+# Element-wise selection with recycling. `ifelse()` and `rep_len()` both strip
+# a `datey` to its integer clicks, so the selection is made on the bare values
+# and the class put back afterwards -- when both branches agree on it, which the
+# engine's type rules require of anything that reaches it.
+it_select <- function(cond, yes, no) {
+  # Branches of different types meet the way datey's Ops meet them: a `datey`
+  # or `durationy` against a plain number becomes double years.
+  if (!identical(oldClass(yes), oldClass(no))) {
+    if (inherits(yes, "datey_type")) yes <- as.double(yes)
+    if (inherits(no, "datey_type")) no <- as.double(no)
+  }
+  n <- max(length(cond), length(yes), length(no))
+  cond <- rep_len(cond, n)
+  chosen <- rep_len(unclass(no), n)
+  taken <- which(cond)
+  chosen[taken] <- rep_len(unclass(yes), n)[taken]
+  chosen[is.na(cond)] <- NA
+  if (identical(oldClass(yes), oldClass(no))) class(chosen) <- oldClass(no)
+  chosen
 }
 
 # ============================================================================

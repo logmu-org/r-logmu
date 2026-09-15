@@ -29,41 +29,32 @@ information criterion with the clutter removed. The reasoning behind it is in
 
 ## A portfolio to work on
 
-There is no data in the package, so here is some, generated from a mortality we
-will pretend not to know. Deaths are placed by inverting the integrated hazard,
-which for a Gompertz $\mu$ can be done in closed form, so this is a sample from
-the model rather than an approximation to one.
+There is no data in the package, so here is some, drawn by `simulate()` from a
+mortality we will pretend not to know. The truth the candidates have to find is
+a level, an age slope steeper than the reference's, and a loading on males; how
+to build such a portfolio is in [Fit a model](A020-fit-a-model.html).
 
 ```{r data}
 set.seed(20260910)
 
 lives <- 4000
-age_at_start <- sample(55:89, lives, replace = TRUE)
-male <- runif(lives) < 0.6
-
-# The truth, which the candidates below have to find: a level, an age slope
-# steeper than the reference table's, and a loading on males.
-log_mu_at_start <- -12.9 + 0.12 * age_at_start + 0.4 * male
-
-exposure <- 5
-target <- -log(runif(lives))
-death_after <- log1p(0.12 * target / exp(log_mu_at_start)) / 0.12
-died <- death_after < exposure
-
-portfolio <- exp_data(
-  list(
-    birth     = datey::datey(2015 - age_at_start),
-    male      = male,
-    pension   = round(exp(rnorm(lives, log(12000), 0.7))),
-    E2R_start = datey::datey(rep(2015, lives)),
-    E2R_end   = datey::datey(2015 + pmin(death_after, exposure)),
-    E2R_died  = died
-  ),
-  exp_start = datey::datey(2015),
-  exp_end   = datey::datey(2020)
+population <- data.frame(
+  birth   = datey::datey(2015 - sample(55:89, lives, replace = TRUE)),
+  male    = runif(lives) < 0.6,
+  pension = round(exp(rnorm(lives, log(12000), 0.7)))
 )
 
-sum(died)
+truth <- mortality(
+  if (.i$male) {
+    gompertz_mortality(log_mu_0 = -3.5, slope_x = 0.12, slope_t = 0)
+  } else {
+    gompertz_mortality(log_mu_0 = -3.9, slope_x = 0.12, slope_t = 0)
+  }
+)
+
+portfolio <- simulate(truth, lives = population,
+                      exp_start = datey::datey(2015), exp_end = datey::datey(2020))
+sum(portfolio$E2R_died)
 ```
 
 ## Four candidates
@@ -127,10 +118,11 @@ coef(best)
 sqrt(diag(vcov(best)))
 ```
 
-The two sex coefficients differ by 0.399, against the 0.4 that went into the
-data. The age term comes out at 0.0149 where 0.02 went in, about one standard
-error short -- the level and the slope are estimated jointly and should be read
-that way, not one at a time.
+The two sex coefficients differ by 0.50, against the 0.4 that went into the
+data, about one standard error over. The age term comes out at 0.013 where 0.02
+went in, about one and a half standard errors short -- the levels and the slope
+are estimated jointly, and are correlated, so they should be read together
+rather than one at a time.
 
 The fitted model is a `mortality`, so `best$mortality` can be handed straight to
 `aev()`, or used as the `ref_mortality` of a further model.
@@ -159,20 +151,20 @@ weighted <- compare_models(portfolio, candidates,
                            weight = .i$pension,
                            test_mortality = reference,
                            overdispersion = 1)
-weighted$table[, c("k", "penalty", "penalised_log_likelihood")]
+weighted$table[, c("L_P", "p", "k")]
 ```
 
 Mostly it stops being a count. `level` still costs exactly 1, and that is not
 rounding: with a single constant covariate $\mathbf{J}\mathbf{I}^{-1}$ is the
 scalar $\mathrm{E}w^2/\mathrm{E}w$, which is $Z$ itself, so $p = Z^{-1}Z = 1$
 however the data is weighted. The others sit a little above their term counts,
-three parameters costing 3.03.
+three parameters costing 3.07.
 
-The interesting change is in the spread. `sex_age` now leads `sex` by 0.2 where on
-lives it led by 4.3: weighting concentrates the data, so there is far less
-evidence for the age term once the log-likelihood follows the money. The ranking
-survives. What you no longer get for free is the calibration -- a shortfall of 1
-is no longer one parameter's worth, and
+The spread can change too. Weighting concentrates the data on the larger
+pensions, so the evidence for a term can grow or shrink depending on where the
+money sits; here the gap between `sex_age` and `sex` happens to be much the
+same as on lives, and the ranking survives. What you no longer get for free is
+the calibration -- a shortfall of 1 is no longer one parameter's worth, and
 [Suddenly AIC](B050-suddenly-aic.html#just-weight-a-moment) sets out why.
 
 ## Overdispersion favours simpler models
@@ -189,13 +181,13 @@ parameters cost untouched.
 ```{r overdispersion}
 behind <- function(omega) {
   table <- compare_models(portfolio, candidates, overdispersion = omega)$table
-  max(table$penalised_log_likelihood) - table["level", "penalised_log_likelihood"]
+  max(table$L_P) - table["level", "L_P"]
 }
 
 c(omega_1 = behind(1), omega_5 = behind(5), omega_25 = behind(25))
 ```
 
-At $\Omega = 1$ the level-only model is 17 behind. At 5 it is under 2. At 25 its
+At $\Omega = 1$ the level-only model is 22 behind. At 5 it is under 3. At 25 its
 shortfall is zero, meaning it has won outright -- at that much overdispersion the
 evidence for a sex split is not there, and a single level is all the data
 supports. This is the quasi-AIC, and it is why $\Omega$ deserves an argument

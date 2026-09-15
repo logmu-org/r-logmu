@@ -5,6 +5,9 @@
 \alias{is_fit}
 \alias{coef.fit}
 \alias{vcov.fit}
+\alias{residuals.fit}
+\alias{summary.fit}
+\alias{print.summary.fit}
 \alias{print.fit}
 \title{Fit a mortality model by maximum weighted log-likelihood}
 \usage{
@@ -13,7 +16,7 @@ fit(
   model,
   include = NULL,
   weight = NULL,
-  val_similarity = NULL,
+  val_relevance = NULL,
   val_distance = NULL,
   test_mortality = default_mortality(),
   Z = NULL,
@@ -34,6 +37,12 @@ is_fit(x)
 
 \method{vcov}{fit}(object, ...)
 
+\method{residuals}{fit}(object, ...)
+
+\method{summary}{fit}(object, ...)
+
+\method{print}{summary.fit}(x, ...)
+
 \method{print}{fit}(x, ...)
 }
 \arguments{
@@ -47,7 +56,7 @@ it.}
 \item{weight}{A pronoun expression for the weight \eqn{w}, or \code{NULL} for
 lives. Weights must not be negative.}
 
-\item{val_similarity, val_distance}{A pronoun expression for the second
+\item{val_relevance, val_distance}{A pronoun expression for the second
 weighting factor, in either spelling. At most one may be given.}
 
 \item{test_mortality}{The mortality on which the \eqn{Z} scale is measured.
@@ -83,16 +92,25 @@ abandoned.}
 }
 \value{
 \code{fit()} returns a \code{fit}, whose fields are \code{beta}, \code{mortality} (the fitted
-model as a \code{mortality}), \code{variance}, \code{log_likelihood}, \code{penalty},
-\code{penalised_log_likelihood}, \code{Z}, \code{overdispersion}, \code{diagnostics} (the
-population and test-mortality numbers \code{print()} reports), \code{labels} (what was
-written for the include, the weight and the test mortality), \code{iterations},
-\code{evaluations}, \code{predicted_gain} and \code{model}.
+model as a \code{mortality}), \code{variance}, \code{L}, \code{p}, \code{L_P}, \code{Z}, \code{overdispersion},
+\code{population} (the population and test-mortality numbers \code{print()} reports),
+\code{arguments} (the include, weight and relevance the fit was run with, kept so
+that \code{\link[=diagnose]{diagnose()}} can reuse them), \code{labels} (what was written for the include,
+the weight and the test mortality), \code{iterations}, \code{evaluations},
+\code{predicted_gain} and \code{model}.
 
 \code{is_fit()} returns a scalar \code{logical}.
 
 \code{coef()} returns the fitted coefficients as a named numeric vector, and
 \code{vcov()} their variance-covariance matrix.
+
+\code{residuals()} stops with a message: a \code{fit} keeps no data, so residuals come
+from an \code{\link[=aev]{aev()}} on the fitted mortality.
+
+\code{summary()} returns a \code{summary.fit}: the \code{coefficients} table (\code{estimate},
+\code{std_error} for one standard deviation and \code{conf_95pc} for the 95\% half-width),
+the \code{correlation} matrix of the estimates, and the header's numbers. A fit
+prints as its summary.
 }
 \description{
 Estimates the coefficients of a \code{\link[=model]{model()}} against experience data, by
@@ -123,15 +141,13 @@ This is what model selection needs, the caller having obtained it once and
 passed it to every candidate, and \code{\link[=compare_models]{compare_models()}} does exactly that.
 }
 
-Where the weight is absent, is the literal 1, or is an expression that can be
-shown to be an indicator, \eqn{w^2 = w} makes \eqn{Z} exactly one. That is
-settled without looking at the data and without consulting \code{test_mortality}
-at all, so the unweighted case costs nothing.
-
-Being \emph{shown} to be an indicator is structural, because a column's type is
-unknown until the data arrives. \code{!.i$male} and \code{.i$group == "a"} qualify
-because the operator forces the type; the bare column \code{.i$male} does not, and
-costs one pass over the data to establish a \eqn{Z} of 1.
+Where the weight is absent, is the literal 1, or takes only the values 0 and
+1 -- a logical expression, or a column holding nothing but zeros and ones --
+\eqn{w^2 = w} makes \eqn{Z} exactly one. The engine recognises such a weight
+and accumulates \eqn{\mathrm{E}w^2} as \eqn{\mathrm{E}w} itself, so the
+measured \eqn{Z} is one to the last bit rather than to a tolerance. The
+measurement is made regardless, since the same pass over the data supplies
+the population figures that \code{print()} reports.
 }
 
 \section{Convergence}{

@@ -90,43 +90,44 @@ aev_element_include <- function(population, element) {
 #' scales `V`, and so scales every confidence interval and residual read from
 #' the result. There is no default: see [settings()].
 #'
-#' @section Similarity and distance:
+#' @section Relevance and distance:
 #' A second weighting factor \eqn{s} says how much a record should count at all,
 #' as opposed to how much of it counts. It differs from `weight` in where it
-#' appears: the weight is squared in \eqn{V} and the similarity is not, so
+#' appears: the weight is squared in \eqn{V} and the relevance is not, so
 #' \eqn{A} and \eqn{E} take \eqn{sw} while \eqn{V} takes \eqn{sw^2}. The effect
-#' is that halving a record's similarity doubles the variance it implies, while
+#' is that halving a record's relevance doubles the variance it implies, while
 #' leaving the number of parameters a model may support unchanged.
 #'
 #' It may be written either way round, and they are one quantity:
 #'
-#' * `val_similarity` is \eqn{s} itself, intended to lie in \eqn{[0, 1]}, where
+#' * `val_relevance` is \eqn{s} itself, intended to lie in \eqn{[0, 1]}, where
 #'   1 counts a record fully and 0 not at all.
 #' * `val_distance` is \eqn{d = -\log s}, so 0 counts a record fully, `log(2)`
 #'   counts it at half, and larger counts it less.
 #'
 #' Give one or the other, never both. `val_distance` is usually the easier of
 #' the two: a decay kernel is `val_distance = (2025 - .t) / 10` and a Gaussian
-#' is `val_distance = (x / h)^2`, where the similarity form would need the
+#' is `val_distance = (x / h)^2`, where the relevance form would need the
 #' exponential written out each time. Distances also add, so several reasons to
 #' discount a record combine by addition.
 #'
-#' A similarity of zero counts a record not at all, but [include()] is the way to
+#' A relevance of zero counts a record not at all, but [include()] is the way to
 #' leave records out: it clips exposure rather than multiplying through it.
 #'
 #' @section Why the names begin with `val_`:
-#' A similarity or a distance is ordinarily a relation between two things. These
-#' arguments are functions of one record and one time, so the far end of the
-#' relation is left implicit: it is the valuation the analysis is aimed at, taken
-#' as a whole and at its as-at date. Leaving it implicit is what allows them to
-#' be written as ordinary variables of the experience record.
+#' Relevance is relevance *to* something, and a distance is a distance *from*
+#' it. Here that something is the valuation the analysis is aimed at, taken as
+#' a whole and at its as-at date: `val_relevance` says how far a record of
+#' experience bears on that valuation, and `val_distance` how far it is from
+#' it. Leaving the valuation implicit is what allows both to be written as
+#' ordinary variables of the experience record and of time.
 #'
 #' You write a `val_` argument yourself, and nothing derives it from valuation
-#' data. The prefix keeps `similarity` and `distance` free for a later, more
-#' general form that would take two records and two times.
+#' data. The prefix keeps `relevance` and `distance` free for a later, more
+#' general form that would relate two records at two times.
 #'
-#' @section The bound on a similarity:
-#' A similarity is a proportion and must lie in \eqn{[0, 1]}; a distance,
+#' @section The bound on a relevance:
+#' A relevance is a proportion and must lie in \eqn{[0, 1]}; a distance,
 #' being \eqn{-\log s}, must not be negative.
 #'
 #' Neither is enforced value by value. Both are expressions of the record and of
@@ -138,7 +139,7 @@ aev_element_include <- function(population, element) {
 #' range each expression can take -- from the numbers written in it and the
 #' range of each column in the data -- and refuses the calculation before
 #' reading a record if that range lies **wholly** outside the bound. So
-#' `val_similarity = 2` is refused, and so is a similarity given as a column
+#' `val_relevance = 2` is refused, and so is a relevance given as a column
 #' whose values run from 5 to 200.
 #'
 #' It refuses only what is certainly wrong. A range that merely permits a
@@ -153,11 +154,11 @@ aev_element_include <- function(population, element) {
 #' @param include An `include` naming the population. `NULL` means everybody.
 #' @param weight A pronoun expression for the weight \eqn{w}, or a `variable`.
 #'   `NULL` means a weight of 1, i.e. a count of lives.
-#' @param val_similarity,val_distance Two spellings of the second weighting
+#' @param val_relevance,val_distance Two spellings of the second weighting
 #'   factor \eqn{s}, related by \eqn{d = -\log s}. Give one or the other. A
-#'   similarity belongs in \eqn{[0, 1]} and a distance must not be negative; see
-#'   *Similarity and distance*, *Why the names begin with `val_`* and *The bound
-#'   on a similarity*.
+#'   relevance belongs in \eqn{[0, 1]} and a distance must not be negative; see
+#'   *Relevance and distance*, *Why the names begin with `val_`* and *The bound
+#'   on a relevance*.
 #' @param breakdown An `include` or [includes()] dividing the population into
 #'   groups. `NULL` gives a single ungrouped result.
 #' @param settings A [settings()] object supplying `overdispersion` and
@@ -195,7 +196,7 @@ aev <- function(exp_data,
                 mortality,
                 include = NULL,
                 weight = NULL,
-                val_similarity = NULL,
+                val_relevance = NULL,
                 val_distance = NULL,
                 breakdown = NULL,
                 settings = NULL,
@@ -221,7 +222,7 @@ aev <- function(exp_data,
 
   plan <- aev_plan(mortality_ast,
                    aev_optional_ast(substitute(weight), missing(weight), caller),
-                   aev_optional_ast(substitute(val_similarity), missing(val_similarity), caller),
+                   aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller),
                    aev_optional_ast(substitute(val_distance), missing(val_distance), caller),
                    include, breakdown, resolved$overdispersion)
 
@@ -255,9 +256,9 @@ aev_optional_ast <- function(expr, absent, caller) {
 #
 # The plan takes ASTs rather than expressions because the capture must happen in
 # the USER'S frame, and by here we are one or two frames away from it.
-aev_plan <- function(mortality_ast, weight_ast, val_similarity_ast, val_distance_ast,
+aev_plan <- function(mortality_ast, weight_ast, val_relevance_ast, val_distance_ast,
                      include, breakdown, overdispersion) {
-  # `val_similarity` and `val_distance` are two spellings of ONE quantity,
+  # `val_relevance` and `val_distance` are two spellings of ONE quantity,
   # related by d = -log s, and giving both is refused AT THE ENGINE BOUNDARY
   # rather than here. A check in this function was written first and turned out
   # to be invisible: breaking it failed no test, because the engine refuses the
@@ -266,7 +267,7 @@ aev_plan <- function(mortality_ast, weight_ast, val_similarity_ast, val_distance
   # WHICH analysis was wrong, which the engine cannot.
   #
   # Neither spelling is converted into the other on the way there. See
-  # `SimilarityForm` in `AevRecipe.hpp` for why that matters.
+  # `RelevanceForm` in `AevRecipe.hpp` for why that matters.
   if (!is.null(include)) {
     if (is_includes(include)) {
       stop("`include` takes a single `include`. Use `breakdown` for several.",
@@ -290,7 +291,7 @@ aev_plan <- function(mortality_ast, weight_ast, val_similarity_ast, val_distance
     list(
       mortality      = mortality_ast,
       weight         = weight_ast,
-      val_similarity = val_similarity_ast,
+      val_relevance = val_relevance_ast,
       val_distance   = val_distance_ast,
       include        = spec_include,
       overdispersion = overdispersion
