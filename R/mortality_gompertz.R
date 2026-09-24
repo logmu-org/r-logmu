@@ -50,7 +50,8 @@
 #' negative, i.e. mortality improving.
 #' @param t_0 The time at which \eqn{\log\mu} takes the value `log_mu_0`, as a
 #' `datey` or a year.
-#' @param name An optional name for this mortality.
+#' @param name An optional name for this mortality, read back by [name()] and
+#' printed wherever the mortality appears.
 #' @returns A `mortality`.
 #' @examples
 #' # The default basis.

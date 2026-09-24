@@ -42,7 +42,8 @@ best_fit(x)
 \item{exp_data}{The experience data.}
 
 \item{models}{A list of \code{\link[=model]{model()}}s, ideally named. Names appear in the
-ranking and index \code{fits}; unnamed candidates are labelled by position.}
+ranking and index \code{fits}. A candidate the list does not name takes its
+model's own \code{name}, and one with neither is labelled by position.}
 
 \item{include}{An \code{include} restricting the population, or \code{NULL} for all of
 it.}

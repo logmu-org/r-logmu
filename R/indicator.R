@@ -46,8 +46,10 @@ NULL
 # an indicator is an include, so it can be an element of a breakdown and needs
 # to be nameable like any other.
 new_indicator <- function(ast, group_name = NULL, name = NULL) {
-  structure(list(ast = ast, group_name = group_name, name = name),
-            class = indicator_class)
+  x <- structure(list(ast = ast), class = indicator_class)
+  group_name(x) <- group_name
+  name(x) <- name
+  x
 }
 
 # Coerce an evaluated value to a logical {0,1}, or stop.

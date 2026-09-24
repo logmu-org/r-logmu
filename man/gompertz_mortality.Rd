@@ -28,7 +28,8 @@ negative, i.e. mortality improving.}
 \item{t_0}{The time at which \eqn{\log\mu} takes the value \code{log_mu_0}, as a
 \code{datey} or a year.}
 
-\item{name}{An optional name for this mortality.}
+\item{name}{An optional name for this mortality, read back by \code{\link[=name]{name()}} and
+printed wherever the mortality appears.}
 }
 \value{
 A \code{mortality}.

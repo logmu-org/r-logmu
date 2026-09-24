@@ -20,7 +20,8 @@ the youngest and earliest \eqn{q} rate, i.e. \eqn{\mu}{mu}-timing.}
 \item{log_mu}{An age-period matrix of \eqn{\log\mu_{xt}}. It is required that
 \eqn{-\infty < \log\mu < +\infty}.}
 
-\item{name}{An optional name for this mortality.}
+\item{name}{An optional name for this mortality, read back by \code{\link[=name]{name()}} and
+printed wherever the mortality appears.}
 }
 \value{
 A \code{mortality}.

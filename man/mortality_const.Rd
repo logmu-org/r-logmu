@@ -16,7 +16,8 @@ mortality_const(q = NULL, mu = NULL, log_mu = NULL, name = NULL)
 \item{log_mu}{The natural logarithm of the instantaneous annual rate ('force') of mortality. It is required that
 \eqn{-\infty < \log\mu < +\infty}.}
 
-\item{name}{An optional name for this mortality.}
+\item{name}{An optional name for this mortality, read back by \code{\link[=name]{name()}} and
+printed wherever the mortality appears.}
 }
 \value{
 A \code{mortality}.

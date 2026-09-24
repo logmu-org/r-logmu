@@ -14,6 +14,13 @@ is_single_valid_durationy <- function(x) datey::is_durationy(x) && length(x) == 
 is_single_pure_finite_numeric <- function(x) is_pure_numeric(x) && length(x) == 1 && is.finite(x)
 is_single_valid_text <- function(x) is_pure_text(x) && length(x) == 1 && !is.na(x)
 is_single_valid_logical <- function(x) is_pure_logical(x) && length(x) == 1 && !is.na(x)
+# A name is a single string that is not blank, has no leading, trailing or
+# consecutive spaces, and holds no control character: a tab or a newline
+# anywhere in a name is never intended, and it would break the printing that
+# lines names up in columns.
+is_valid_name <- function(x) {
+  is_single_valid_text(x) && nzchar(x) && !grepl("^ | $|  |[[:cntrl:]]", x)
+}
 is_matrix_of_double <- function(x) {
   if (!is.double(x) || length(x) == 0) return(FALSE)
   dims <- dim(x)
@@ -92,12 +99,27 @@ ensure_is_single_valid_text <- function(x) {
     stop("`", arg_name, "` must be a (single) text string.", call. = FALSE)
   }
 }
+valid_name_rule <- "not blank, with no leading, trailing or consecutive spaces, and no control character such as a tab"
 ensure_is_valid_name <- function(x) {
-  # TODO: Check not blank, no trailing, leading or consecutive spaces.
-  if (!is_single_valid_text(x)) {
+  if (!is_valid_name(x)) {
     arg_name <- deparse(substitute(x))
-    stop("`", arg_name, "` must be a valid name, i.e. not blank and no trailing, leading or consecutive spaces.", call. = FALSE)
+    stop("`", arg_name, "` must be a valid name, i.e. a single string that is ",
+         valid_name_rule, ".", call. = FALSE)
   }
+}
+# The same rule over a vector of labels -- list names, `names<-` values and the
+# labels the package generates for itself all come through here, so a generator
+# that breaks the rule fails in the suite rather than in a chart title.
+ensure_are_valid_names <- function(x, what) {
+  if (!is.character(x)) {
+    stop("`", what, "` must be character.", call. = FALSE)
+  }
+  bad <- !vapply(unname(x), function(one) is_valid_name(one), logical(1L))
+  if (any(bad)) {
+    stop("`", what, "` must be valid names, i.e. ", valid_name_rule, "; got ",
+         paste0("\"", x[bad], "\"", collapse = ", "), ".", call. = FALSE)
+  }
+  invisible(x)
 }
 ensure_is_finite_matrix_of_double <- function(x) {
   if (!is_finite_matrix_of_double(x)) {

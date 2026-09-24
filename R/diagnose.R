@@ -43,7 +43,8 @@ diagnosis_class <- "diagnosis"
 #'
 #' @param exp_data The experience data, ordinarily the data the model was fitted
 #'   to.
-#' @param x A `fit` or a `model_comparison`.
+#' @param x A `fit` or a `model_comparison`. A lone fit is one candidate,
+#'   labelled by its model's `name` where it has one and `fit` otherwise.
 #' @param breakdown An `include`, an [includes()], a list of either, or `NULL`.
 #'   See *Breakdowns*.
 #' @param include The population. Defaults to the one the fit was run over.
@@ -185,9 +186,10 @@ diagnose <- function(exp_data,
   )
 }
 
-# The converged fits to diagnose, named. A lone fit is a comparison of one.
+# The converged fits to diagnose, named. A lone fit is a comparison of one,
+# labelled by its model's name where it has one.
 diagnose_fits <- function(x) {
-  if (is_fit(x)) return(list(fit = x))
+  if (is_fit(x)) return(stats::setNames(list(x), name(x$model) %||% "fit"))
   if (is_model_comparison(x)) {
     fits <- Filter(Negate(is.null), x$fits)
     if (length(fits) == 0L) {
@@ -246,6 +248,7 @@ diagnose_breakdowns <- function(breakdown, expr) {
   }
   given <- names(breakdown) %||% rep("", length(breakdown))
   labels <- ifelse(nzchar(given), given, written)
+  ensure_are_valid_names(labels, "names(breakdown)")
 
   result <- lapply(breakdown, function(one) {
     if (is.null(one)) NULL else as_includes(one)

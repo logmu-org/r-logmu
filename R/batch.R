@@ -161,6 +161,7 @@ batch_element_names <- function(elements) {
     stop("Every analysis in a `batch()` must be named, since the names are how ",
          "the results are found.", call. = FALSE)
   }
+  ensure_are_valid_names(given, "names")
 
   # The ban is what makes the dotted namespace safe to extend: a setting added
   # in a later release cannot collide with a name a user has already chosen.

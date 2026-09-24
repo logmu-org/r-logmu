@@ -161,6 +161,10 @@ category_names <- function(groups) {
   defaults <- vapply(groups, category_default_name, character(1L))
   given <- names(groups)
   labels <- if (is.null(given)) defaults else ifelse(nzchar(given), given, defaults)
+  # The defaults are checked along with what was written: a category value that
+  # is blank or oddly spaced would otherwise become a label no chart can head,
+  # and naming the group is the way round it.
+  ensure_are_valid_names(labels, "group names")
 
   repeated <- unique(labels[duplicated(labels)])
   if (length(repeated) > 0L) {

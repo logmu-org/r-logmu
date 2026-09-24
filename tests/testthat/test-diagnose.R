@@ -190,3 +190,11 @@ test_that("plot() draws one chart per candidate per breakdown, in a grid", {
   on.exit(dev.off(), add = TRUE)
   expect_identical(plot(d), d)
 })
+
+test_that("a lone fit of a named model is labelled by that name", {
+  named <- model(reference, covariates(level = 1), name = "flat level")
+  f <- fit(group_data, named, settings = basis)
+  d <- diagnose(group_data, f)
+  expect_identical(names(d$candidates), "flat level")
+  expect_identical(d$candidates[["flat level"]]$summary, summary(f))
+})

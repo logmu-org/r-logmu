@@ -185,7 +185,7 @@ fit <- function(exp_data,
   population <- fit_population(test_ast, weight_ast, include, columns,
                                resolved$time_scale_clicks, threads)
   scale <- resolve_Z(Z, population)
-  labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality),
+  labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality), test_ast,
                             substitute(include), include, weight_ast)
   arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
 
@@ -349,9 +349,15 @@ resolve_Z <- function(Z, population) {
 # `gompertz_mortality()`, `reference`, `include(.i$group == "a")` -- identifies
 # it exactly. The weight is the exception: it was parsed, so its AST deparses
 # back to the pronoun expression itself.
-fit_call_labels <- function(test_expr, test_absent, include_expr, include, weight_ast) {
+#
+# THE TEST MORTALITY IS LABELLED BY ITS NAME where it has one, and by what was
+# typed otherwise: `S4PMA` says more than `tables$pensioners`, and far more
+# than an inline `gompertz_mortality(-3.8, 0.1, ...)` cut to sixty characters.
+fit_call_labels <- function(test_expr, test_absent, test_ast, include_expr, include, weight_ast) {
+  test_name <- if (identical(test_ast$kind, "obj")) name(test_ast$value) else NULL
   list(
-    test_mortality = if (test_absent) "default_mortality()" else it_short_deparse(test_expr),
+    test_mortality = if (test_absent) "default_mortality()"
+                     else test_name %||% it_short_deparse(test_expr),
     include = if (is.null(include)) "all records" else it_short_deparse(include_expr),
     weight = if (is.null(weight_ast)) "lives" else it_deparse(weight_ast)
   )
@@ -484,6 +490,10 @@ new_fit <- function(run, model, Z, overdispersion, population, arguments, call_l
   # `log mu^ref + sum beta_j X_j` is a complete specification, which is what
   # gives layered fitting for nothing.
   fitted <- mortality_from_ast(fitted_mortality_ast(model, run$beta))
+  # NAMED AS THE MODEL WAS, the way every mortality constructor names its
+  # result, so the fitted mortality handed on as a `ref_mortality` still says
+  # where it came from.
+  name(fitted) <- name(model)
 
   structure(
     list(
@@ -628,6 +638,7 @@ cat_correlation <- function(correlation) {
 summary.fit <- function(object, ...) {
   structure(
     list(
+      name = name(object$model),
       terms = length(object$beta),
       iterations = object$iterations,
       evaluations = object$evaluations,
@@ -653,6 +664,7 @@ print.summary.fit <- function(x, ...) {
               x$iterations, if (identical(x$iterations, 1L)) "" else "s",
               x$evaluations, if (identical(x$evaluations, 1L)) "" else "s"))
 
+  if (!is.null(x$name)) cat(sprintf("  model           %s\n", x$name))
   cat_analysis_header(x)
 
   cat("\n")

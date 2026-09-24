@@ -6,7 +6,7 @@
 \alias{print.model}
 \title{A proportional hazards mortality model}
 \usage{
-model(ref_mortality, covariates)
+model(ref_mortality, covariates, name = NULL)
 
 is_model(x)
 
@@ -20,6 +20,10 @@ feature of their own.}
 
 \item{covariates}{A \code{\link[=covariates]{covariates()}} object giving the \eqn{X} terms. The
 coefficients belong to the fit; nothing here names or supplies one.}
+
+\item{name}{An optional name for this model: a single string that is not
+blank, has no leading, trailing or consecutive spaces, and holds no
+control character such as a tab.}
 
 \item{x}{An object.}
 
@@ -40,6 +44,11 @@ candidate model in a selection exercise shares them.
 
 A fitted model is itself a \code{mortality}, so it can be handed back as the
 \code{ref_mortality} of another model.
+
+A model may carry a \code{name}. It is how \code{\link[=compare_models]{compare_models()}} labels the
+candidate when the list of models does not, how \code{\link[=diagnose]{diagnose()}} labels a lone
+fit, and it is printed with the model and with its fit. A name given in the
+list handed to \code{compare_models()} wins over the model's own.
 }
 \examples{
 age_shape <- variable(.x)

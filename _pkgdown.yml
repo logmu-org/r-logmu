@@ -113,6 +113,9 @@ reference:
   - include
   - includes
   - category
+- title: Naming objects
+  contents:
+  - name
 - title: A/E analysis
   contents:
   - aev

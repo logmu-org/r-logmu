@@ -69,7 +69,7 @@ NULL
 # on what the caller's list happened to be carrying.
 new_includes <- function(items) {
   items <- unname(items)
-  named <- vapply(items, function(inc) inc$name %||% "", character(1L))
+  named <- vapply(items, function(inc) name(inc) %||% "", character(1L))
   if (any(nzchar(named))) names(items) <- named
   structure(items, class = includes_class)
 }
@@ -79,7 +79,13 @@ new_includes <- function(items) {
 # include but holds an AST rather than terms, and relabelling it must not
 # demote it to a plain include -- that would lose the {0,1} guarantee V = E
 # rests on.
-relabel_include <- function(x, group_name = x$group_name, name = x$name) {
+#
+# The defaults read the attributes directly rather than through `name()` and
+# `group_name()`: a formal called `name` whose default calls `name(x)` is a
+# recursive default-argument reference in R, and errors.
+relabel_include <- function(x,
+                            group_name = attr(x, "group_name", exact = TRUE),
+                            name = attr(x, "name", exact = TRUE)) {
   if (is_indicator(x)) return(new_indicator(x$ast, group_name, name))
   new_include(x$terms, group_name, name)
 }
@@ -89,6 +95,7 @@ relabel_include <- function(x, group_name = x$group_name, name = x$name) {
 includes <- function(...) {
   args <- list(...)
   given <- names(args)
+  if (!is.null(given)) ensure_are_valid_names(given[nzchar(given)], "names")
 
   items <- list()
   for (i in seq_along(args)) {
@@ -153,7 +160,7 @@ group_names.default <- function(x) {
 # Unnamed deliberately: this is a vector PARALLEL to `names(x)`, and carrying the
 # other level of naming as its own names would invite reading the wrong one.
 group_names.includes <- function(x) {
-  unname(vapply(unclass(x), function(inc) inc$group_name %||% NA_character_,
+  unname(vapply(unclass(x), function(inc) group_name(inc) %||% NA_character_,
                 character(1L)))
 }
 
@@ -177,6 +184,7 @@ group_names.includes <- function(x) {
     stop("`names` must have one name per include (", length(items), ").", call. = FALSE)
   }
   if (anyNA(value)) stop("`names` cannot be NA.", call. = FALSE)
+  ensure_are_valid_names(value, "names")
 
   new_includes(Map(function(inc, nm) relabel_include(inc, name = nm), items, value))
 }
@@ -210,6 +218,7 @@ group_names.includes <- function(x) {
          length(items), ").", call. = FALSE)
   }
   if (anyNA(value)) stop("`group_names` cannot be NA.", call. = FALSE)
+  ensure_are_valid_names(value, "group_names")
 
   new_includes(Map(function(inc, nm) relabel_include(inc, group_name = nm), items, value))
 }
@@ -235,7 +244,7 @@ print.includes <- function(x, ...) {
   items <- unclass(x)
   cat("<includes[", length(items), "]>\n", sep = "")
   for (inc in items) {
-    cat("  ", inc$group_name %||% "?", ": ", inc$name %||% "?", "\n", sep = "")
+    cat("  ", group_name(inc) %||% "?", ": ", name(inc) %||% "?", "\n", sep = "")
   }
   invisible(x)
 }

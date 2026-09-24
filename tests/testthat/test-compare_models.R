@@ -614,3 +614,32 @@ test_that("print() counts the failures and explains them", {
   # And here the status column IS shown, because it now distinguishes the rows.
   expect_true(any(grepl("not_identifiable", shown)))
 })
+
+test_that("a candidate the list does not name takes its model's own name", {
+  named_level <- model(reference, covariates(level = 1), name = "level")
+  named_group <- model(reference, covariates(a = .i$group == "a", b = .i$group == "b",
+                                             c = .i$group == "c"), name = "group")
+  comparison <- compare_models(group_data, models = list(named_level, named_group),
+                              settings = basis)
+  expect_identical(sort(rownames(comparison$table)), c("group", "level"))
+  expect_identical(sort(names(comparison$fits)), c("group", "level"))
+})
+
+test_that("the list's name wins over the model's own, and position fills the rest", {
+  named_level <- model(reference, covariates(level = 1), name = "level")
+  comparison <- compare_models(group_data,
+                               models = list(from_list = named_level, group_model),
+                               settings = basis)
+  expect_identical(sort(rownames(comparison$table)), c("from_list", "model_2"))
+})
+
+test_that("two models carrying the same name may not be compared unnamed", {
+  twin_a <- model(reference, covariates(level = 1), name = "twin")
+  twin_b <- model(reference, covariates(a = .i$group == "a"), name = "twin")
+  expect_error(compare_models(group_data, models = list(twin_a, twin_b), settings = basis),
+               "`twin` is used more than once")
+  # Naming them in the list is the way out.
+  comparison <- compare_models(group_data, models = list(a = twin_a, b = twin_b),
+                               settings = basis)
+  expect_identical(sort(rownames(comparison$table)), c("a", "b"))
+})

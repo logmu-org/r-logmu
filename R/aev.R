@@ -260,6 +260,7 @@ checked_aev_labels <- function(value, records, what) {
     stop("`", what, "` must have one label per record (", records, ").", call. = FALSE)
   }
   if (anyNA(value)) stop("`", what, "` cannot be NA.", call. = FALSE)
+  ensure_are_valid_names(value, what)
   value
 }
 

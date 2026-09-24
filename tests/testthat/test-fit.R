@@ -694,3 +694,40 @@ test_that("a model prints its reference and its terms", {
   expect_match(printed, "reference: <mortality_const>")
   expect_match(printed, "level")
 })
+
+test_that("a model may carry a name, and its fit and fitted mortality carry it on", {
+  named <- model(ref_mortality = reference, covariates = covariates(level = 1),
+                 name = "flat level")
+  expect_identical(name(named), "flat level")
+  expect_null(name(intercept_model))
+
+  printed <- paste(capture.output(print(named)), collapse = "\n")
+  expect_match(printed, "name:      flat level", fixed = TRUE)
+  unnamed <- paste(capture.output(print(intercept_model)), collapse = "\n")
+  expect_false(grepl("name:", unnamed, fixed = TRUE))
+
+  f <- fit(group_data, named, settings = basis)
+  expect_identical(summary(f)$name, "flat level")
+  expect_identical(name(f$mortality), "flat level")
+  printed <- paste(capture.output(print(f)), collapse = "\n")
+  expect_match(printed, "model           flat level", fixed = TRUE)
+
+  # An unnamed model's fit says nothing about a name, and its mortality has none.
+  g <- fit(group_data, intercept_model, settings = basis)
+  expect_null(summary(g)$name)
+  expect_null(attr(g$mortality, "name", exact = TRUE))
+  expect_false(grepl("model    ", paste(capture.output(print(g)), collapse = "\n"),
+                     fixed = TRUE))
+})
+
+test_that("a model's name must be a valid name", {
+  expect_error(model(ref_mortality = reference, covariates = covariates(level = 1),
+                     name = ""),
+               "`name` must be a valid name")
+  expect_error(model(ref_mortality = reference, covariates = covariates(level = 1),
+                     name = c("a", "b")),
+               "`name` must be a valid name")
+  expect_error(model(ref_mortality = reference, covariates = covariates(level = 1),
+                     name = "level "),
+               "`name` must be a valid name")
+})

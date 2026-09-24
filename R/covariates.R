@@ -41,7 +41,7 @@ covariates_class <- c("covariates", "logmu_function")
 # shape, because if `I^(j) I^(l) = 0` then `I^(j) phi * I^(l) phi = 0` too.
 new_covariates <- function(items, disjoint = FALSE) {
   items <- unname(items)
-  named <- vapply(items, function(x) attr(x, "covariate_name") %||% "", character(1L))
+  named <- vapply(items, covariate_name_of, character(1L))
   if (any(nzchar(named))) names(items) <- named
   structure(items, disjoint = disjoint, class = covariates_class)
 }
@@ -49,13 +49,15 @@ new_covariates <- function(items, disjoint = FALSE) {
 # A name rides on the item rather than on the list, so it survives the algebra:
 # a Cartesian product has to build new names from the two it came from, and a
 # names attribute on the outer list would be lost the moment anything rebuilt.
+# It is the item's own `name`, set through the setter so that a product name
+# built below is checked by the same rule as one the user wrote.
 label_covariate <- function(x, name) {
   if (is.null(name) || !nzchar(name)) return(x)
-  attr(x, "covariate_name") <- name
+  name(x) <- name
   x
 }
 
-covariate_name_of <- function(x) attr(x, "covariate_name") %||% ""
+covariate_name_of <- function(x) name(x) %||% ""
 
 # Capture one unevaluated argument as a variable.
 #
@@ -76,6 +78,7 @@ capture_covariate_argument <- function(argument, env) {
 
 build_covariates <- function(arguments, env) {
   given <- names(arguments)
+  if (!is.null(given)) ensure_are_valid_names(given[nzchar(given)], "names")
   items <- list()
 
   for (i in seq_along(arguments)) {

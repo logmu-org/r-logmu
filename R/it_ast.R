@@ -625,7 +625,9 @@ it_infix_ops <- c(
 it_deparse <- function(node) {
   switch(node$kind,
     lit   = it_format_value(node$value),
-    obj   = paste0("<", class(node$value)[[1L]], ">"),
+    # A NAMED OBJECT PRINTS AS ITS NAME. That is what the name is for: `S4PMA`
+    # identifies a table where `<mortality_table>` identifies nothing.
+    obj   = name(node$value) %||% paste0("<", class(node$value)[[1L]], ">"),
     field = paste0(".i$", node$name),
     time  = ".t",
     call  = {
@@ -644,7 +646,12 @@ it_deparse <- function(node) {
   )
 }
 
-# Short, single-line deparse of a raw expression for error messages.
+# Short, single-line deparse of a raw expression for error messages and for
+# the labels that head a chart. `deparse()` wraps a long expression at sixty
+# bytes and indents the continuation, so the join carries runs of spaces past
+# the first line -- which no label may hold. The cut at 57 characters lands
+# before the first wrap, so the label is always single-spaced; a longer cut
+# would need the join squashed first.
 it_short_deparse <- function(e) {
   txt <- paste(deparse(e), collapse = " ")
   if (nchar(txt) > 60L) paste0(substr(txt, 1L, 57L), "...") else txt

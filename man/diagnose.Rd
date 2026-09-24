@@ -31,7 +31,8 @@ is_diagnosis(x)
 \item{exp_data}{The experience data, ordinarily the data the model was fitted
 to.}
 
-\item{x}{A \code{fit} or a \code{model_comparison}.}
+\item{x}{A \code{fit} or a \code{model_comparison}. A lone fit is one candidate,
+labelled by its model's \code{name} where it has one and \code{fit} otherwise.}
 
 \item{breakdown}{An \code{include}, an \code{\link[=includes]{includes()}}, a list of either, or \code{NULL}.
 See \emph{Breakdowns}.}

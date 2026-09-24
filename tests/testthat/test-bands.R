@@ -232,7 +232,7 @@ test_that("renaming writes through to the elements", {
   names(std)[1] <- "young"
 
   expect_equal(names(std), c("young", "80-95"))
-  expect_equal(std[[1]]$name, "young")
+  expect_equal(name(std[[1]]), "young")
   expect_equal(names(includes(std)), c("young", "80-95"))
 })
 
@@ -241,7 +241,7 @@ test_that("group_names<- writes through, and recycles a single value", {
   group_names(std) <- "Pension amount"
 
   expect_equal(group_names(std), rep("Pension amount", 2L))
-  expect_equal(std[[1]]$group_name, "Pension amount")
+  expect_equal(group_name(std[[1]]), "Pension amount")
   expect_equal(group_names(includes(std)), rep("Pension amount", 2L))
 
   group_names(std) <- c("a", "b")

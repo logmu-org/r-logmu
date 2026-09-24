@@ -31,12 +31,20 @@ model_class <- "model"
 #' A fitted model is itself a `mortality`, so it can be handed back as the
 #' `ref_mortality` of another model.
 #'
+#' A model may carry a `name`. It is how [compare_models()] labels the
+#' candidate when the list of models does not, how [diagnose()] labels a lone
+#' fit, and it is printed with the model and with its fit. A name given in the
+#' list handed to `compare_models()` wins over the model's own.
+#'
 #' @param ref_mortality The reference mortality: a `mortality`, or a pronoun
 #'   expression for \eqn{\log\mu^{\mathrm{ref}}}. Anything held fixed goes here
 #'   -- a reference mortality is already an offset, so fixed effects need no
 #'   feature of their own.
 #' @param covariates A [covariates()] object giving the \eqn{X} terms. The
 #'   coefficients belong to the fit; nothing here names or supplies one.
+#' @param name An optional name for this model: a single string that is not
+#'   blank, has no leading, trailing or consecutive spaces, and holds no
+#'   control character such as a tab.
 #' @param x An object.
 #' @param ... Ignored.
 #' @returns
@@ -54,10 +62,11 @@ NULL
 
 #' @rdname model
 #' @export
-model <- function(ref_mortality, covariates) {
+model <- function(ref_mortality, covariates, name = NULL) {
 
   if (missing(ref_mortality)) stop("`ref_mortality` is required.", call. = FALSE)
   if (missing(covariates)) stop("`covariates` is required.", call. = FALSE)
+  if (!is.null(name)) ensure_is_valid_name(name)
 
   # CAPTURED UNEVALUATED, in the caller's frame, exactly as `aev()` captures its
   # mortality: this may be a `mortality` object, a `~` formula or a bare pronoun
@@ -70,7 +79,9 @@ model <- function(ref_mortality, covariates) {
     stop("A `model` needs at least one covariate; there is nothing to fit.", call. = FALSE)
   }
 
-  structure(list(ref_mortality = ref_ast, covariates = covariates), class = model_class)
+  x <- structure(list(ref_mortality = ref_ast, covariates = covariates), class = model_class)
+  name(x) <- name
+  x
 }
 
 #' @rdname model
@@ -109,6 +120,7 @@ print.model <- function(x, ...) {
   cat(sprintf("<model: %d term%s%s>\n",
               length(x$covariates), if (length(x$covariates) == 1L) "" else "s",
               if (is_disjoint(x$covariates)) ", disjoint" else ""))
+  if (!is.null(name(x))) cat(sprintf("  name:      %s\n", name(x)))
   cat(sprintf("  reference: %s\n", it_deparse(x$ref_mortality)))
   labels <- model_term_labels(x)
   for (i in seq_along(labels)) {

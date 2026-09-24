@@ -76,7 +76,8 @@ comparison_class <- "model_comparison"
 #'
 #' @param exp_data The experience data.
 #' @param models A list of [model()]s, ideally named. Names appear in the
-#'   ranking and index `fits`; unnamed candidates are labelled by position.
+#'   ranking and index `fits`. A candidate the list does not name takes its
+#'   model's own `name`, and one with neither is labelled by position.
 #' @param include An `include` restricting the population, or `NULL` for all of
 #'   it.
 #' @param weight A pronoun expression for the weight \eqn{w}, or `NULL` for
@@ -204,7 +205,7 @@ compare_models <- function(exp_data,
                                resolved$time_scale_clicks, threads)
   scale <- resolve_Z(Z, population)
   arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
-  call_labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality),
+  call_labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality), test_ast,
                                  substitute(include), include, weight_ast)
 
   # EVERY CANDIDATE STARTS AT `beta = 0`, AND THERE IS NO `start` ARGUMENT HERE.
@@ -231,9 +232,10 @@ compare_models <- function(exp_data,
 # ---- the candidates --------------------------------------------------------
 
 # One label per candidate, and they must be UNIQUE, because they index `fits`.
-# A candidate with no name is labelled by position rather than refused: a
-# comparison is often built up programmatically, and `lapply()` over a set of
-# covariate lists produces a list with no names at all.
+# The list's name wins, then the model's own `name`, then position. A candidate
+# with no name is labelled by position rather than refused: a comparison is
+# often built up programmatically, and `lapply()` over a set of covariate lists
+# produces a list with no names at all.
 comparison_labels <- function(models) {
   # A `model` IS A LIST, so this test has to come first or a single model handed
   # in here is silently taken apart and its `ref_mortality` reported as candidate
@@ -260,7 +262,11 @@ comparison_labels <- function(models) {
   labels <- names(models)
   if (is.null(labels)) labels <- rep("", length(models))
   anonymous <- is.na(labels) | !nzchar(labels)
+  own <- vapply(models, function(model) name(model) %||% "", character(1L))
+  labels[anonymous] <- own[anonymous]
+  anonymous <- !nzchar(labels)
   labels[anonymous] <- sprintf("model_%d", seq_along(models))[anonymous]
+  ensure_are_valid_names(labels, "names(models)")
 
   duplicated_labels <- unique(labels[duplicated(labels)])
   if (length(duplicated_labels) > 0L) {

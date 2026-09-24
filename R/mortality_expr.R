@@ -56,6 +56,15 @@ new_mortality_expr <- function(ast) {
   structure(list(ast = ast), class = mortality_expr_class)
 }
 
+#' @export
+#' @noRd
+print.mortality_expr <- function(x, ...) {
+  cat(sprintf("<mortality_expr%s> %s\n",
+              if (is.null(name(x))) "" else paste0(": ", name(x)),
+              it_deparse(x$ast)))
+  invisible(x)
+}
+
 #' @rdname mortality
 #' @export
 log_mu.mortality_expr <- function(x, .i, .t) {

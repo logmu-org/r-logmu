@@ -128,9 +128,15 @@ NULL
 # ages, periods and amounts has to tell a chart which six are the ages, so a
 # single flat name is not enough. `name` becomes the list name once the include
 # is collected into an `includes`. Both are NULL for a hand-built include.
+#
+# BOTH LEVELS ARE ATTRIBUTES, set through the `name<-` and `group_name<-`
+# setters so that every label -- the user's and the ones `bands()` and
+# `categories()` generate -- is checked by the one rule in `is_valid_name()`.
 new_include <- function(terms, group_name = NULL, name = NULL) {
-  structure(list(terms = terms, group_name = group_name, name = name),
-            class = include_class)
+  x <- structure(list(terms = terms), class = include_class)
+  group_name(x) <- group_name
+  name(x) <- name
+  x
 }
 
 absolute_term  <- function(from, to)         list(kind = "absolute", from = from, to = to)
@@ -516,10 +522,10 @@ format_include_term <- function(term) {
 #' @export
 #' @noRd
 print.include <- function(x, ...) {
-  if (is.null(x$name)) {
+  if (is.null(name(x))) {
     cat("<include>\n")
   } else {
-    cat("<include: ", x$group_name, " ", x$name, ">\n", sep = "")
+    cat("<include: ", group_name(x), " ", name(x), ">\n", sep = "")
   }
   for (term in x$terms) cat("  ", format_include_term(term), "\n", sep = "")
   invisible(x)

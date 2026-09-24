@@ -70,7 +70,8 @@
 #' \eqn{0 < \mu < +\infty}.
 #' @param log_mu An age-period matrix of \eqn{\log\mu_{xt}}. It is required that
 #' \eqn{-\infty < \log\mu < +\infty}.
-#' @param name An optional name for this mortality.
+#' @param name An optional name for this mortality, read back by [name()] and
+#' printed wherever the mortality appears.
 #' @returns A `mortality`.
 #' @export
 mortality_table <- function(x0, t0, q = NULL, mu = NULL, log_mu = NULL, name = NULL) {
@@ -128,6 +129,16 @@ mortality_table <- function(x0, t0, q = NULL, mu = NULL, log_mu = NULL, name = N
   ensure_is_single_valid_datey(t0 + period_covered)
 
   structure(log_mu, class = mortality_table_class, x0 = x0, t0 = t0, end_age = end_age, name = name)
+}
+
+#' @export
+#' @noRd
+print.mortality_table <- function(x, ...) {
+  cat(sprintf("<mortality_table%s> %d ages from %s, %d years from %s\n",
+              if (is.null(name(x))) "" else paste0(": ", name(x)),
+              nrow(x), format(attr(x, "x0", exact = TRUE)),
+              ncol(x), format(attr(x, "t0", exact = TRUE))))
+  invisible(x)
 }
 
 #' @rdname mortality
