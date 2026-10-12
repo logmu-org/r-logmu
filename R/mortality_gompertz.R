@@ -147,11 +147,15 @@ gompertz_mortality <- function(
 #' mortality but a Gompertz law of your own, which is what
 #' [gompertz_mortality()] is for.
 #'
-#' @returns A `mortality`.
+#' It is named `logmu default`, which is how it appears wherever a mortality is
+#' printed, as in the header of a [fit()] or a [compare_models()].
+#'
+#' @returns A `mortality` named `logmu default`.
 #' @examples
 #' default_mortality()
+#' name(default_mortality())
 #'
-#' # It is exactly the no-argument Gompertz.
-#' identical(default_mortality(), gompertz_mortality())
+#' # It is exactly the no-argument Gompertz, given a name.
+#' identical(default_mortality(), gompertz_mortality(name = "logmu default"))
 #' @export
-default_mortality <- function() gompertz_mortality()
+default_mortality <- function() gompertz_mortality(name = "logmu default")

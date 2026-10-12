@@ -8,7 +8,7 @@
 # macOS alone was two thirds of the bill.
 #
 #   check           every push and PR    Windows + Linux release + Linux devel
-#   check-extended  weekly, or on demand macOS + Linux oldrel-1
+#   check-extended  weekly, or on demand macOS + Linux release
 #
 # That is 4 minute-units against 15 for the common case, and macOS still runs
 # every Monday. TO PUT macOS BACK ON EVERY PUSH, move its entry from the second
@@ -160,7 +160,13 @@ jobs:
       matrix:
         config:
           - {os: macos-latest,  r: 'release'}
-          - {os: ubuntu-latest, r: 'oldrel-1'}
+          # RELEASE, NOT OLDREL-1, since 2026-10-12. `DESCRIPTION` requires
+          # R >= 4.6.0, so on oldrel-1 (R 4.5) pak could never resolve the
+          # dependencies and this job failed every week before building
+          # anything. It nominally repeats the push job's Linux release entry,
+          # but it runs weekly whether or not anything was pushed, so it still
+          # catches a newly released dependency that breaks the package.
+          - {os: ubuntu-latest, r: 'release'}
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}

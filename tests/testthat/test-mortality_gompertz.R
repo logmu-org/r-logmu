@@ -207,9 +207,10 @@ test_that("the engine converges to the closed-form integral", {
 
 # ---- default_mortality -----------------------------------------------------
 
-test_that("default_mortality() is the no-argument Gompertz", {
+test_that("default_mortality() is the no-argument Gompertz, named", {
   expect_true(is_mortality(default_mortality()))
-  expect_identical(default_mortality(), gompertz_mortality())
+  expect_identical(default_mortality(), gompertz_mortality(name = "logmu default"))
+  expect_identical(name(default_mortality()), "logmu default")
   expect_identical(length(formals(default_mortality)), 0L)
 })
 

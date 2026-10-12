@@ -214,6 +214,48 @@ test_that("the fit header names the test mortality where it has a name", {
   expect_identical(g$labels$test_mortality, "reference")
 })
 
+test_that("the header names a test mortality that was spliced, not kept as a leaf", {
+  # A pronoun-expression mortality, which every Gompertz is, is SPLICED into the
+  # AST and its name does not survive the splice, so the name has to be read off
+  # the value before that happens. Again the variable is called something other
+  # than the name it carries.
+  steep <- gompertz_mortality(slope_x = 0.12, name = "steeper Gompertz")
+  expect_false(identical(it_capture(quote(steep), environment())$kind, "obj"))
+
+  model_1 <- model(reference, covariates(level = 1))
+  by_symbol <- fit(group_data, model_1, test_mortality = steep, settings = basis)
+  expect_identical(by_symbol$labels$test_mortality, "steeper Gompertz")
+
+  # Redundant parentheses and a call evaluated in place read the same.
+  in_parens <- fit(group_data, model_1, test_mortality = (steep), settings = basis)
+  expect_identical(in_parens$labels$test_mortality, "steeper Gompertz")
+  by_call <- fit(group_data, model_1, settings = basis,
+                 test_mortality = gompertz_mortality(slope_x = 0.12, name = "steeper Gompertz"))
+  expect_identical(by_call$labels$test_mortality, "steeper Gompertz")
+
+  # Taking the name must not change the tree the engine is given.
+  here <- environment()
+  for (typed in list(quote(steep), quote((steep)),
+                     quote(gompertz_mortality(slope_x = 0.12, name = "steeper Gompertz")))) {
+    expect_identical(fit_test_mortality(typed, FALSE, NULL, here)$ast, it_capture(typed, here))
+  }
+
+  # Unnamed, the label is still what was typed.
+  unnamed <- gompertz_mortality(slope_x = 0.12)
+  plain <- fit(group_data, model_1, test_mortality = unnamed, settings = basis)
+  expect_identical(plain$labels$test_mortality, "unnamed")
+
+  # The default reads the same whether left out or passed, and so does a
+  # comparison, which shares the helper.
+  absent <- fit(group_data, model_1, settings = basis)
+  passed <- fit(group_data, model_1, test_mortality = default_mortality(), settings = basis)
+  expect_identical(absent$labels$test_mortality, "logmu default")
+  expect_identical(passed$labels$test_mortality, "logmu default")
+  compared <- compare_models(group_data, list(model_1), test_mortality = steep,
+                             settings = basis)
+  expect_identical(compared$labels$test_mortality, "steeper Gompertz")
+})
+
 test_that("mortalities print their name and a line about themselves", {
   flat <- paste(capture.output(print(mortality_const(log_mu = -4, name = "flat"))),
                 collapse = "\n")

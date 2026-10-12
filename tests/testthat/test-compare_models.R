@@ -293,7 +293,7 @@ test_that("the header reports the population it fitted on", {
 
   shown <- capture.output(print(comparison))
   expect_true(any(grepl("5 deaths, 39 years of exposure", shown)))
-  expect_true(any(grepl("test mortality  default_mortality\\(\\)", shown)))
+  expect_true(any(grepl("test mortality  logmu default", shown)))
   expect_true(any(grepl("weight          lives", shown)))
   expect_true(any(grepl("include         all records", shown)))
 })

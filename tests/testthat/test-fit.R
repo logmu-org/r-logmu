@@ -685,7 +685,7 @@ test_that("a fit prints its estimates, its scale and its cost", {
   expect_match(printed, "Z 1")
   # And the header, which is shared with a comparison.
   expect_match(printed, "deaths, ")
-  expect_match(printed, "test mortality  default_mortality")
+  expect_match(printed, "test mortality  logmu default")
 })
 
 test_that("a model prints its reference and its terms", {

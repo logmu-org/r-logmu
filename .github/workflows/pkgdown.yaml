@@ -1,11 +1,16 @@
 # Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
 # Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
-# THE SITE DOES NOT NEED REBUILDING ON EVERY PUSH. Trimmed on 2026-08-31 to
-# stay inside the free minutes: a published release rebuilds it, and
-# `workflow_dispatch` rebuilds it whenever you want one in between. The push and
-# pull_request triggers were spending a Linux job on every commit to produce a
-# site nobody reads until a release.
+# REBUILT ON EVERY PUSH TO MAIN AGAIN since 2026-10-12. The push trigger was
+# removed on 2026-08-31 to save minutes in the private r-logmu-history repo,
+# where every push-triggered run failed. This repo is public, so standard
+# runners cost nothing, and the build runs alongside `R-CMD-check`, so nobody
+# waits longer for it. Pull requests still do not build the site.
+#
+# THE JOB HAS A 30-MINUTE TIMEOUT. A normal build takes about four minutes, and
+# a run that hung on 2026-08-19 held a runner for the full six-hour default.
 on:
+  push:
+    branches: [main, master]
   release:
     types: [published]
   workflow_dispatch:
@@ -17,6 +22,7 @@ permissions: read-all
 jobs:
   pkgdown:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Only restrict concurrency for non-PR jobs
     concurrency:
       group: pkgdown-${{ github.event_name != 'pull_request' || github.run_id }}

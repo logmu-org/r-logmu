@@ -7,7 +7,7 @@
 default_mortality()
 }
 \value{
-A \code{mortality}.
+A \code{mortality} named \verb{logmu default}.
 }
 \description{
 The general-purpose mortality \strong{logmu} falls back on where one is needed and
@@ -32,10 +32,14 @@ mortalities are not on one scale.
 It takes no arguments deliberately. Vary it and it is no longer the default
 mortality but a Gompertz law of your own, which is what
 \code{\link[=gompertz_mortality]{gompertz_mortality()}} is for.
+
+It is named \verb{logmu default}, which is how it appears wherever a mortality is
+printed, as in the header of a \code{\link[=fit]{fit()}} or a \code{\link[=compare_models]{compare_models()}}.
 }
 \examples{
 default_mortality()
+name(default_mortality())
 
-# It is exactly the no-argument Gompertz.
-identical(default_mortality(), gompertz_mortality())
+# It is exactly the no-argument Gompertz, given a name.
+identical(default_mortality(), gompertz_mortality(name = "logmu default"))
 }

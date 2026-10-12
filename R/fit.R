@@ -170,8 +170,8 @@ fit <- function(exp_data,
   weight_ast <- aev_optional_ast(substitute(weight), missing(weight), caller)
   relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
-  test_ast <- fit_test_mortality_ast(substitute(test_mortality), missing(test_mortality),
-                                     Z, caller)
+  test <- fit_test_mortality(substitute(test_mortality), missing(test_mortality), Z, caller)
+  test_ast <- test$ast
 
   if (!is.null(include)) {
     if (is_includes(include)) {
@@ -185,7 +185,7 @@ fit <- function(exp_data,
   population <- fit_population(test_ast, weight_ast, include, columns,
                                resolved$time_scale_clicks, threads)
   scale <- resolve_Z(Z, population)
-  labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality), test_ast,
+  labels <- fit_call_labels(substitute(test_mortality), test$name,
                             substitute(include), include, weight_ast)
   arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
 
@@ -260,14 +260,51 @@ fit_start <- function(start, terms) {
 # `logmu::fit()` without attaching the package. So the default is named twice, in
 # the signature for `?fit` and here for the code, and a test pins the two as
 # giving identical results.
-fit_test_mortality_ast <- function(expr, absent, Z, caller) {
+#
+# THE NAME IS TAKEN HERE, FROM THE VALUE, because the AST cannot carry it. A
+# mortality written as a pronoun expression, which includes every Gompertz, is
+# SPLICED into the tree rather than kept as an obj leaf, and its name goes with
+# it. So where the whole argument is one object -- a variable, or a call with no
+# pronouns in it -- it is evaluated once, here, and the AST is built from that
+# value by the route `it_fold()` and `it_resolve_symbol()` take, which gives the
+# identical tree. Anything else, such as `m + 0.1`, has no single name and goes
+# through `it_capture()` as before.
+fit_test_mortality <- function(expr, absent, Z, caller) {
   if (!absent && !is.null(Z)) {
     stop("Give either `test_mortality` or `Z`, not both. They are two ways of ",
          "saying the same thing: `Z` IS the number a test mortality would be ",
          "used to work out.", call. = FALSE)
   }
-  if (absent) return(it_obj(default_mortality()))
-  it_capture(expr, caller)
+  if (absent) {
+    value <- default_mortality()
+    return(list(ast = it_obj(value), name = name(value)))
+  }
+
+  bare <- expr
+  while (is.call(bare) && identical(bare[[1L]], quote(`(`)) && length(bare) == 2L) {
+    bare <- bare[[2L]]
+  }
+  one_object <- if (is.symbol(bare)) {
+    !startsWith(as.character(bare), ".")
+  } else {
+    is.call(bare) && !it_is_dynamic_expr(bare, caller)
+  }
+
+  if (one_object) {
+    it_check_forbidden(expr)
+    value <- tryCatch(
+      eval(bare, envir = caller),
+      error = function(err) {
+        stop(sprintf("Could not evaluate `test_mortality` (`%s`): %s",
+                     it_short_deparse(bare), conditionMessage(err)),
+             call. = FALSE)
+      }
+    )
+    return(list(ast = it_classify_value(value, bare), name = name(value)))
+  }
+
+  ast <- it_capture(expr, caller)
+  list(ast = ast, name = if (identical(ast$kind, "obj")) name(ast$value) else NULL)
 }
 
 # The diagnostic pass, and the ONLY pass either front end makes outside the fit.
@@ -353,11 +390,13 @@ resolve_Z <- function(Z, population) {
 # THE TEST MORTALITY IS LABELLED BY ITS NAME where it has one, and by what was
 # typed otherwise: `S4PMA` says more than `tables$pensioners`, and far more
 # than an inline `gompertz_mortality(-3.8, 0.1, ...)` cut to sixty characters.
-fit_call_labels <- function(test_expr, test_absent, test_ast, include_expr, include, weight_ast) {
-  test_name <- if (identical(test_ast$kind, "obj")) name(test_ast$value) else NULL
+# The default needs no case of its own: `default_mortality()` is named, so it
+# reads the same whether the user left `test_mortality` out or passed it. The
+# name comes from `fit_test_mortality()`, which explains why the AST cannot
+# supply it.
+fit_call_labels <- function(test_expr, test_name, include_expr, include, weight_ast) {
   list(
-    test_mortality = if (test_absent) "default_mortality()"
-                     else test_name %||% it_short_deparse(test_expr),
+    test_mortality = test_name %||% it_short_deparse(test_expr),
     include = if (is.null(include)) "all records" else it_short_deparse(include_expr),
     weight = if (is.null(weight_ast)) "lives" else it_deparse(weight_ast)
   )

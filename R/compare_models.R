@@ -185,8 +185,8 @@ compare_models <- function(exp_data,
   weight_ast <- aev_optional_ast(substitute(weight), missing(weight), caller)
   relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
-  test_ast <- fit_test_mortality_ast(substitute(test_mortality), missing(test_mortality),
-                                     Z, caller)
+  test <- fit_test_mortality(substitute(test_mortality), missing(test_mortality), Z, caller)
+  test_ast <- test$ast
 
   if (!is.null(include)) {
     if (is_includes(include)) {
@@ -205,7 +205,7 @@ compare_models <- function(exp_data,
                                resolved$time_scale_clicks, threads)
   scale <- resolve_Z(Z, population)
   arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
-  call_labels <- fit_call_labels(substitute(test_mortality), missing(test_mortality), test_ast,
+  call_labels <- fit_call_labels(substitute(test_mortality), test$name,
                                  substitute(include), include, weight_ast)
 
   # EVERY CANDIDATE STARTS AT `beta = 0`, AND THERE IS NO `start` ARGUMENT HERE.
