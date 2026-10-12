@@ -18,6 +18,7 @@
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
 <script src="../extra.js"></script><meta property="og:title" content="Test multiple models">
+<link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -112,8 +113,222 @@
 
     
     
-<p>TODO</p>
-  </main>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/logmu-org/r-logmu" class="external-link">logmu</a></span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="../reference/fit.html">fit()</a></code> calibrates one model. It cannot tell you whether
+that model was worth having, because a model with more parameters always
+fits the data it was calibrated on better than a model with fewer.
+<code><a href="../reference/compare_models.html">compare_models()</a></code> fits several candidates and ranks them on
+penalised log-likelihood, which is Akaike’s information criterion with
+the clutter removed. The reasoning behind it is in <a href="B050-suddenly-aic.html">Suddenly AIC</a>; this article is about
+running it.</p>
+<div class="section level2">
+<h2 id="a-portfolio-to-work-on">A portfolio to work on<a class="anchor" aria-label="anchor" href="#a-portfolio-to-work-on"></a>
+</h2>
+<p>There is no data in the package, so here is some, drawn by
+<code><a href="../reference/simulate.html">simulate()</a></code> from a mortality we will pretend not to know.
+The truth the candidates have to find is a level, an age slope steeper
+than the reference’s, and a loading on males; how to build such a
+portfolio is in <a href="A020-fit-a-model.html">Fit a model</a>.</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260910</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">lives</span> <span class="op">&lt;-</span> <span class="fl">4000</span></span>
+<span><span class="va">population</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  birth   <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2015</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fl">55</span><span class="op">:</span><span class="fl">89</span>, <span class="va">lives</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  male    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="va">lives</span><span class="op">)</span> <span class="op">&lt;</span> <span class="fl">0.6</span>,</span>
+<span>  pension <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">lives</span>, <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fl">12000</span><span class="op">)</span>, <span class="fl">0.7</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">truth</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/mortality.html">mortality</a></span><span class="op">(</span></span>
+<span>  <span class="kw">if</span> <span class="op">(</span><span class="va">.i</span><span class="op">$</span><span class="va">male</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>log_mu_0 <span class="op">=</span> <span class="op">-</span><span class="fl">3.5</span>, slope_x <span class="op">=</span> <span class="fl">0.12</span>, slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span>  <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></span>
+<span>    <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>log_mu_0 <span class="op">=</span> <span class="op">-</span><span class="fl">3.9</span>, slope_x <span class="op">=</span> <span class="fl">0.12</span>, slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span>  <span class="op">}</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">portfolio</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulate.html">simulate</a></span><span class="op">(</span><span class="va">truth</span>, lives <span class="op">=</span> <span class="va">population</span>,</span>
+<span>                      exp_start <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2015</span><span class="op">)</span>, exp_end <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2020</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">portfolio</span><span class="op">$</span><span class="va">E2R_died</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 743</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="four-candidates">Four candidates<a class="anchor" aria-label="anchor" href="#four-candidates"></a>
+</h2>
+<p>Every candidate is a <code><a href="../reference/model.html">model()</a></code>: a reference mortality,
+plus the covariates whose coefficients are to be estimated. A
+<code>model</code> holds nothing else. The data, the population, the
+weight and the overdispersion are arguments of the comparison, not
+properties of a candidate, and that is what makes candidates comparable
+rather than a rule you have to remember.</p>
+<p>The reference here is a Gompertz curve with its time trend switched
+off, so anything the candidates find is theirs.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">reference</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">candidates</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  level    <span class="op">=</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>, <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span>level <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  sex      <span class="op">=</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>, <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span>male <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">male</span>, female <span class="op">=</span> <span class="op">!</span><span class="va">.i</span><span class="op">$</span><span class="va">male</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  age      <span class="op">=</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>, <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span>level <span class="op">=</span> <span class="fl">1</span>, age <span class="op">=</span> <span class="va">.x</span> <span class="op">-</span> <span class="fl">75</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  sex_age  <span class="op">=</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>, <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span>male <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">male</span>, female <span class="op">=</span> <span class="op">!</span><span class="va">.i</span><span class="op">$</span><span class="va">male</span>,</span>
+<span>                                         age <span class="op">=</span> <span class="va">.x</span> <span class="op">-</span> <span class="fl">75</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>The <code>sex</code> and <code>sex_age</code> candidates split the
+population into two indicators that cannot both be one. Saying so with
+<code><a href="../reference/covariates.html">disjoint()</a></code> instead of <code><a href="../reference/covariates.html">covariates()</a></code> lets the
+engine leave the off-diagonal integrals out altogether, which is worth
+having once there are more than a handful of groups.</p>
+</div>
+<div class="section level2">
+<h2 id="the-comparison">The comparison<a class="anchor" aria-label="anchor" href="#the-comparison"></a>
+</h2>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">comparison</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/compare_models.html">compare_models</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">candidates</span>,</span>
+<span>                             overdispersion <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">comparison</span></span>
+<span><span class="co">#&gt; &lt;model_comparison: 4 candidates, 4 converged&gt;</span></span>
+<span><span class="co">#&gt;   include         all records</span></span>
+<span><span class="co">#&gt;   weight          lives</span></span>
+<span><span class="co">#&gt;   data            743 deaths, 18183 years of exposure</span></span>
+<span><span class="co">#&gt;   test mortality  logmu default</span></span>
+<span><span class="co">#&gt;                   Aw 743   Ew 573   Ew^2 573   Z 1</span></span>
+<span><span class="co">#&gt;                   log A/E 0.25981 ± 0.041776 (1 sd) or ± 0.081879 (95%), at overdispersion 1</span></span>
+<span><span class="co">#&gt;   overdispersion  1</span></span>
+<span><span class="co">#&gt;   max L_P         -2739.508</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;             L_P       L     p k</span></span>
+<span><span class="co">#&gt; sex_age   0.000   3.000 3.000 3</span></span>
+<span><span class="co">#&gt; sex      -2.862  -0.862 2.000 2</span></span>
+<span><span class="co">#&gt; age     -19.217 -17.217 2.000 2</span></span>
+<span><span class="co">#&gt; level   -21.702 -20.702 1.000 1</span></span></code></pre></div>
+<p>Larger <span class="math inline">L_\text{P}</span> is better, so the
+table is ordered best first. The header describes the data and the scale
+everything below it is quoted in.</p>
+<p>The two likelihood columns have the best candidate’s <span class="math inline">L_\text{P}</span> taken off them, so the winner
+reads 0 and everyone else is negative. Both are shifted by the same
+constant, which is why <span class="math inline">L - L_\text{P} =
+p</span> still holds row by row: the arithmetic can be checked on the
+face of the table. <code>$table</code> keeps the unshifted numbers.</p>
+<p>Note the <code>p</code> column against the <code>k</code> beside it:
+the penalty is exactly the parameter count. That is not a coincidence
+and it is not hard-wired – the penalty is <span class="math inline">p =
+Z^{-1}\operatorname{tr}(\mathbf{J}\mathbf{I}^{-1})</span>, and with no
+weight <span class="math inline">w^2 = w</span> makes it collapse to
+<span class="math inline">\dim(\beta)</span>. So here, and only here,
+<span class="math inline">L_\text{P}</span> is exactly <span class="math inline">-\text{AIC}/2</span> and a shortfall of 1 is one
+parameter’s worth. Anything under about 1 is not worth acting on.</p>
+<p>The winner is a <code>fit</code> like any other:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">best</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/compare_models.html">best_fit</a></span><span class="op">(</span><span class="va">comparison</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef</a></span><span class="op">(</span><span class="va">best</span><span class="op">)</span></span>
+<span><span class="co">#&gt;        male      female         age </span></span>
+<span><span class="co">#&gt;  0.35807146 -0.13867752  0.01309349</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">sqrt</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/diag.html" class="external-link">diag</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">vcov</a></span><span class="op">(</span><span class="va">best</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt;        male      female         age </span></span>
+<span><span class="co">#&gt; 0.057812446 0.078338077 0.004795356</span></span></code></pre></div>
+<p>The two sex coefficients differ by 0.50, against the 0.4 that went
+into the data, about one standard error over. The age term comes out at
+0.013 where 0.02 went in, about one and a half standard errors short –
+the levels and the slope are estimated jointly, and are correlated, so
+they should be read together rather than one at a time.</p>
+<p>The fitted model is a <code>mortality</code>, so
+<code>best$mortality</code> can be handed straight to
+<code><a href="../reference/aev.html">aev()</a></code>, or used as the <code>ref_mortality</code> of a
+further model.</p>
+</div>
+<div class="section level2">
+<h2 id="weights-change-what-the-penalty-means">Weights change what the penalty means<a class="anchor" aria-label="anchor" href="#weights-change-what-the-penalty-means"></a>
+</h2>
+<p>Weight the log-likelihood by pension and the ranking still works, but
+two things change.</p>
+<p>First, <span class="math inline">Z</span> is no longer 1, so it has
+to be measured. It is measured on <code>test_mortality</code>, which
+defaults to <code><a href="../reference/default_mortality.html">default_mortality()</a></code>, and it has to be the same
+for every candidate or the penalised log-likelihoods are on different
+scales and the comparison means nothing. <code><a href="../reference/compare_models.html">compare_models()</a></code>
+measures it a single time and hands the same value to every candidate,
+whatever the reference mortalities of the candidates themselves happen
+to be.</p>
+<p>Nominate a different test mortality if you have a reason to. Only its
+age slope materially matters, and a shared choice is worth more than a
+good one, so the default is usually the right answer. Where you already
+have the number, pass <code>Z</code> instead and no measurement happens
+at all.</p>
+<p>Second, <span class="math inline">p</span> stops being a count.</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">weighted</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/compare_models.html">compare_models</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">candidates</span>,</span>
+<span>                           weight <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">pension</span>,</span>
+<span>                           test_mortality <span class="op">=</span> <span class="va">reference</span>,</span>
+<span>                           overdispersion <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">weighted</span><span class="op">$</span><span class="va">table</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"L_P"</span>, <span class="st">"p"</span>, <span class="st">"k"</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="co">#&gt;               L_P        p k</span></span>
+<span><span class="co">#&gt; sex_age -1661.860 3.068963 3</span></span>
+<span><span class="co">#&gt; sex     -1664.756 2.000682 2</span></span>
+<span><span class="co">#&gt; age     -1671.446 2.056258 2</span></span>
+<span><span class="co">#&gt; level   -1674.190 1.000000 1</span></span></code></pre></div>
+<p>Mostly it stops being a count. <code>level</code> still costs exactly
+1, and that is not rounding: with a single constant covariate <span class="math inline">\mathbf{J}\mathbf{I}^{-1}</span> is the scalar <span class="math inline">\mathrm{E}w^2/\mathrm{E}w</span>, which is <span class="math inline">Z</span> itself, so <span class="math inline">p =
+Z^{-1}Z = 1</span> however the data is weighted. The others sit a little
+above their term counts, three parameters costing 3.07.</p>
+<p>The spread can change too. Weighting concentrates the data on the
+larger pensions, so the evidence for a term can grow or shrink depending
+on where the money sits; here the gap between <code>sex_age</code> and
+<code>sex</code> happens to be much the same as on lives, and the
+ranking survives. What you no longer get for free is the calibration – a
+shortfall of 1 is no longer one parameter’s worth, and <a href="B050-suddenly-aic.html#just-weight-a-moment">Suddenly AIC</a> sets
+out why.</p>
+</div>
+<div class="section level2">
+<h2 id="overdispersion-favours-simpler-models">Overdispersion favours simpler models<a class="anchor" aria-label="anchor" href="#overdispersion-favours-simpler-models"></a>
+</h2>
+<p>Mortality data is overdispersed, always, and
+<code>overdispersion</code> has no default for that reason. It is not a
+nuisance in this calculation: it changes the answer, and in the right
+direction.</p>
+<p><span class="math inline">L</span> carries <span class="math inline">\Omega^{-1}</span> and the penalty does not, because
+the <span class="math inline">\Omega^{-1}</span> in <span class="math inline">\mathbf{I}</span> and <span class="math inline">\mathbf{J}</span> cancels in <span class="math inline">\mathbf{J}\mathbf{I}^{-1}</span>. So raising <span class="math inline">\Omega</span> shrinks the advantage a richer model
+has while leaving what its extra parameters cost untouched.</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">behind</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">omega</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">table</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/compare_models.html">compare_models</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">candidates</span>, overdispersion <span class="op">=</span> <span class="va">omega</span><span class="op">)</span><span class="op">$</span><span class="va">table</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/Extremes.html" class="external-link">max</a></span><span class="op">(</span><span class="va">table</span><span class="op">$</span><span class="va">L_P</span><span class="op">)</span> <span class="op">-</span> <span class="va">table</span><span class="op">[</span><span class="st">"level"</span>, <span class="st">"L_P"</span><span class="op">]</span></span>
+<span><span class="op">}</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>omega_1 <span class="op">=</span> <span class="fu">behind</span><span class="op">(</span><span class="fl">1</span><span class="op">)</span>, omega_5 <span class="op">=</span> <span class="fu">behind</span><span class="op">(</span><span class="fl">5</span><span class="op">)</span>, omega_25 <span class="op">=</span> <span class="fu">behind</span><span class="op">(</span><span class="fl">25</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt;   omega_1   omega_5  omega_25 </span></span>
+<span><span class="co">#&gt; 21.701713  2.968005  0.000000</span></span></code></pre></div>
+<p>At <span class="math inline">\Omega = 1</span> the level-only model
+is 22 behind. At 5 it is under 3. At 25 its shortfall is zero, meaning
+it has won outright – at that much overdispersion the evidence for a sex
+split is not there, and a single level is all the data supports. This is
+the quasi-AIC, and it is why <span class="math inline">\Omega</span>
+deserves an argument rather than a default.</p>
+</div>
+<div class="section level2">
+<h2 id="when-a-candidate-cannot-be-fitted">When a candidate cannot be fitted<a class="anchor" aria-label="anchor" href="#when-a-candidate-cannot-be-fitted"></a>
+</h2>
+<p><code><a href="../reference/fit.html">fit()</a></code> raises rather than return a number nobody should
+use. A comparison cannot afford to: one hopeless candidate out of fifty
+must not take the other forty-nine with it. So a candidate that fails is
+reported in place – its row carries the status and <code>NA</code>, it
+sorts last, and the diagnosis <code><a href="../reference/fit.html">fit()</a></code> would have raised is
+kept.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">broken</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">candidates</span>,</span>
+<span>            <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>collinear <span class="op">=</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>,</span>
+<span>                                   <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span>level <span class="op">=</span> <span class="fl">1</span>, again <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">comparison</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/compare_models.html">compare_models</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">broken</span>, overdispersion <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: 1 of 5 candidates could not be fitted: `collinear` (not_identifiable).</span></span>
+<span><span class="co">#&gt; See `$failures` for why.</span></span>
+<span><span class="va">comparison</span><span class="op">$</span><span class="va">failures</span><span class="op">[[</span><span class="st">"collinear"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="co">#&gt; [1] "The model is not identifiable. Term 2 (again) is a linear combination of the terms before it, so its coefficient is not determined by the data. It equals 1 * [1] level."</span></span></code></pre></div>
+<p>The warning names the failures as they happen, so a candidate cannot
+go missing from a ranking quietly.</p>
+</div>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
+    </nav></aside>
 </div>
 
 

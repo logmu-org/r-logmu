@@ -30,7 +30,9 @@ mortality_const(q = NULL, mu = NULL, log_mu = NULL, name = NULL)
 
 - name:
 
-  An optional name for this mortality.
+  An optional name for this mortality, read back by
+  [`name()`](https://r-logmu.logmu.org/reference/name.md) and printed
+  wherever the mortality appears.
 
 ## Value
 

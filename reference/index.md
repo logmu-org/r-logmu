@@ -57,6 +57,14 @@
   Create an `mortality` from a 2D age-period matrix of annual mortality
   rates
 
+- [`gompertz_mortality()`](https://r-logmu.logmu.org/reference/gompertz_mortality.md)
+  :
+
+  Create a Gompertz `mortality` with an age and a period slope
+
+- [`default_mortality()`](https://r-logmu.logmu.org/reference/default_mortality.md)
+  : The default mortality
+
 ## Pronouns `.i` and `.t`
 
 - [`pronoun_expressions()`](https://r-logmu.logmu.org/reference/pronoun_expressions.md)
@@ -96,6 +104,14 @@
   [`categories()`](https://r-logmu.logmu.org/reference/category.md) :
   Categories: breaking a population down by a categorical field
 
+## Naming objects
+
+- [`name()`](https://r-logmu.logmu.org/reference/name.md)
+  [`` `name<-`() ``](https://r-logmu.logmu.org/reference/name.md)
+  [`group_name()`](https://r-logmu.logmu.org/reference/name.md)
+  [`` `group_name<-`() ``](https://r-logmu.logmu.org/reference/name.md)
+  : The name of an object
+
 ## A/E analysis
 
 - [`aev()`](https://r-logmu.logmu.org/reference/aev.md) : Actual,
@@ -126,6 +142,42 @@
 
 - [`theme_aev()`](https://r-logmu.logmu.org/reference/theme_aev.md) :
   The chart theme, and how to resize a chart
+
+## Fitting and comparing models
+
+- [`model()`](https://r-logmu.logmu.org/reference/model.md)
+  [`is_model()`](https://r-logmu.logmu.org/reference/model.md)
+  [`print(`*`<model>`*`)`](https://r-logmu.logmu.org/reference/model.md)
+  : A proportional hazards mortality model
+- [`covariates()`](https://r-logmu.logmu.org/reference/covariates.md)
+  [`disjoint()`](https://r-logmu.logmu.org/reference/covariates.md)
+  [`is_covariates()`](https://r-logmu.logmu.org/reference/covariates.md)
+  [`is_disjoint()`](https://r-logmu.logmu.org/reference/covariates.md) :
+  Covariates: the fitted terms of a mortality model
+- [`fit()`](https://r-logmu.logmu.org/reference/fit.md)
+  [`is_fit()`](https://r-logmu.logmu.org/reference/fit.md)
+  [`coef(`*`<fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md)
+  [`vcov(`*`<fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md)
+  [`residuals(`*`<fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md)
+  [`summary(`*`<fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md)
+  [`print(`*`<summary.fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md)
+  [`print(`*`<fit>`*`)`](https://r-logmu.logmu.org/reference/fit.md) :
+  Fit a mortality model by maximum weighted log-likelihood
+- [`compare_models()`](https://r-logmu.logmu.org/reference/compare_models.md)
+  [`is_model_comparison()`](https://r-logmu.logmu.org/reference/compare_models.md)
+  [`best_fit()`](https://r-logmu.logmu.org/reference/compare_models.md)
+  [`summary(`*`<model_comparison>`*`)`](https://r-logmu.logmu.org/reference/compare_models.md)
+  [`print(`*`<summary.model_comparison>`*`)`](https://r-logmu.logmu.org/reference/compare_models.md)
+  [`print(`*`<model_comparison>`*`)`](https://r-logmu.logmu.org/reference/compare_models.md)
+  : Compare mortality models by penalised log-likelihood
+- [`diagnose()`](https://r-logmu.logmu.org/reference/diagnose.md)
+  [`is_diagnosis()`](https://r-logmu.logmu.org/reference/diagnose.md)
+  [`print(`*`<diagnosis>`*`)`](https://r-logmu.logmu.org/reference/diagnose.md)
+  [`plot(`*`<diagnosis>`*`)`](https://r-logmu.logmu.org/reference/diagnose.md)
+  : Standard diagnostics for a fit, or for every candidate of a
+  comparison
+- [`simulate(`*`<mortality>`*`)`](https://r-logmu.logmu.org/reference/simulate.md)
+  : Simulate experience data from a mortality
 
 ## Running several analyses at once
 

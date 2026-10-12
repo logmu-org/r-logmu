@@ -14,6 +14,7 @@ These are the core types of mortality object:
 Typedatey functionNotes
 Constantmortality_const()
 Age-periodmortality_table()Mortality rates that are smooth at an annual scale
+Gompertzgompertz_mortality()Log mu linear in age and in time
 ModelTBC
 
 
@@ -59,6 +60,7 @@ These are the core types of mortality object:
 Typedatey functionNotes
 Constantmortality_const()
 Age-periodmortality_table()Mortality rates that are smooth at an annual scale
+Gompertzgompertz_mortality()Log mu linear in age and in time
 ModelTBC
 
 
@@ -89,7 +91,7 @@ scale or adjust a mortality (adding in \(\log\mu\) is multiplying
 write a closed-form law directly from the pronouns.
 
 
-A bare reference to a concrete mortality is returned unchanged."><meta property="og:image" content="https://r-logmu.logmu.org/logo.svg"></head><body>
+A bare reference to a concrete mortality is returned unchanged."><meta property="og:image" content="https://r-logmu.logmu.org/logo.svg"><link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -173,7 +175,7 @@ TBC.</p>
 <p>For testing and understanding, you can access the \(\log\mu_{it}\)
 calculation by defining your own <code>.i</code> and <code>.t</code> variables and then calling
 <code>log_mu()</code> on a mortality. Do <em>not</em> use this for performant scenarios.</p>
-<p>These are the core types of mortality object:</p><table class="table table"><tr><td>Type</td><td><strong>datey</strong> function</td><td>Notes</td></tr><tr><td>Constant</td><td><code><a href="mortality_const.html">mortality_const()</a></code></td><td></td></tr><tr><td>Age-period</td><td><code><a href="mortality_table.html">mortality_table()</a></code></td><td>Mortality rates that are smooth at an annual scale</td></tr><tr><td>Model</td><td>TBC</td><td></td></tr></table><p>You can build on these:</p><ul><li><p>Select between tables using TBC.</p></li>
+<p>These are the core types of mortality object:</p><table class="table table"><tr><td>Type</td><td><strong>datey</strong> function</td><td>Notes</td></tr><tr><td>Constant</td><td><code><a href="mortality_const.html">mortality_const()</a></code></td><td></td></tr><tr><td>Age-period</td><td><code><a href="mortality_table.html">mortality_table()</a></code></td><td>Mortality rates that are smooth at an annual scale</td></tr><tr><td>Gompertz</td><td><code><a href="gompertz_mortality.html">gompertz_mortality()</a></code></td><td>Log mu linear in age and in time</td></tr><tr><td>Model</td><td>TBC</td><td></td></tr></table><p>You can build on these:</p><ul><li><p>Select between tables using TBC.</p></li>
 <li><p>Scale mortality rates using TBC.</p></li>
 <li><p>Provide sub-annual mortality variation using TBC.</p></li>
 </ul><p>LINK TO OTHER PACKAGES TO GET STANDARD TABLES</p>
@@ -252,13 +254,7 @@ time-invariant, as for any conditional),</p></li>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] -4.600149</span>
 <span class="r-in"><span><span class="va">base</span> <span class="op">&lt;-</span> <span class="fu"><a href="mortality_const.html">mortality_const</a></span><span class="op">(</span>log_mu <span class="op">=</span> <span class="op">-</span><span class="fl">4</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">mortality</span><span class="op">(</span><span class="va">base</span> <span class="op">+</span> <span class="fl">0.05</span><span class="op">)</span>   <span class="co"># scale mu up by exp(0.05)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $ast</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> call `+`</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   obj &lt;mortality_const&gt;</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   lit 0.05</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> attr(,"class")</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "mortality_expr" "mortality"      "logmu_function"</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> &lt;mortality_expr&gt; (&lt;mortality_const&gt; + 0.05)</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -13,7 +13,7 @@ batch(
   .exp_data = NULL,
   .include = NULL,
   .weight = NULL,
-  .val_similarity = NULL,
+  .val_relevance = NULL,
   .val_distance = NULL,
   .breakdown = NULL,
   .settings = NULL,
@@ -31,12 +31,12 @@ batch(
   [`aev()`](https://r-logmu.logmu.org/reference/aev.md). Each name
   becomes a name in the result and may not begin with a dot.
 
-- .exp_data, .include, .weight, .val_similarity, .val_distance,
+- .exp_data, .include, .weight, .val_relevance, .val_distance,
   .breakdown, .settings, .overdispersion, .time_scale:
 
   Defaults for the analyses, each standing in for the argument of the
   same name wherever an analysis does not supply its own.
-  `.val_similarity` and `.val_distance` are two spellings of one
+  `.val_relevance` and `.val_distance` are two spellings of one
   quantity, so only one may be given and an analysis naming either of
   them takes neither default.
 

@@ -9,7 +9,7 @@ mortality, optionally restricted to a sub-population and optionally broken
 down into groups.
 mortality and weight are pronoun expressions, so they may be written
 out in place (.i$pension), or reference a mortality, variable or
-indicator object by name, or combine the two."><meta property="og:image" content="https://r-logmu.logmu.org/logo.svg"></head><body>
+indicator object by name, or combine the two."><meta property="og:image" content="https://r-logmu.logmu.org/logo.svg"><link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -97,7 +97,7 @@ out in place (<code>.i$pension</code>), or reference a <code>mortality</code>, <
 <span>  <span class="va">mortality</span>,</span>
 <span>  include <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  weight <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  val_similarity <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  val_relevance <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  val_distance <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  breakdown <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  settings <span class="op">=</span> <span class="cn">NULL</span>,</span>
@@ -128,12 +128,12 @@ out in place (<code>.i$pension</code>), or reference a <code>mortality</code>, <
 <code>NULL</code> means a weight of 1, i.e. a count of lives.</p></dd>
 
 
-<dt id="arg-val-similarity-val-distance">val_similarity, val_distance<a class="anchor" aria-label="anchor" href="#arg-val-similarity-val-distance"></a></dt>
+<dt id="arg-val-relevance-val-distance">val_relevance, val_distance<a class="anchor" aria-label="anchor" href="#arg-val-relevance-val-distance"></a></dt>
 <dd><p>Two spellings of the second weighting
 factor \(s\), related by \(d = -\log s\). Give one or the other. A
-similarity belongs in \([0, 1]\) and a distance must not be negative; see
-<em>Similarity and distance</em>, <em>Why the names begin with <code>val_</code></em> and <em>The bound
-on a similarity</em>.</p></dd>
+relevance belongs in \([0, 1]\) and a distance must not be negative; see
+<em>Relevance and distance</em>, <em>Why the names begin with <code>val_</code></em> and <em>The bound
+on a relevance</em>.</p></dd>
 
 
 <dt id="arg-breakdown">breakdown<a class="anchor" aria-label="anchor" href="#arg-breakdown"></a></dt>
@@ -182,45 +182,46 @@ scales <code>V</code>, and so scales every confidence interval and residual read
 the result. There is no default: see <code><a href="settings.html">settings()</a></code>.</p>
     </div>
     <div class="section level2">
-    <h2 id="similarity-and-distance">Similarity and distance<a class="anchor" aria-label="anchor" href="#similarity-and-distance"></a></h2>
+    <h2 id="relevance-and-distance">Relevance and distance<a class="anchor" aria-label="anchor" href="#relevance-and-distance"></a></h2>
 
 
 <p>A second weighting factor \(s\) says how much a record should count at all,
 as opposed to how much of it counts. It differs from <code>weight</code> in where it
-appears: the weight is squared in \(V\) and the similarity is not, so
+appears: the weight is squared in \(V\) and the relevance is not, so
 \(A\) and \(E\) take \(sw\) while \(V\) takes \(sw^2\). The effect
-is that halving a record's similarity doubles the variance it implies, while
+is that halving a record's relevance doubles the variance it implies, while
 leaving the number of parameters a model may support unchanged.</p>
-<p>It may be written either way round, and they are one quantity:</p><ul><li><p><code>val_similarity</code> is \(s\) itself, intended to lie in \([0, 1]\), where
+<p>It may be written either way round, and they are one quantity:</p><ul><li><p><code>val_relevance</code> is \(s\) itself, intended to lie in \([0, 1]\), where
 1 counts a record fully and 0 not at all.</p></li>
 <li><p><code>val_distance</code> is \(d = -\log s\), so 0 counts a record fully, <code>log(2)</code>
 counts it at half, and larger counts it less.</p></li>
 </ul><p>Give one or the other, never both. <code>val_distance</code> is usually the easier of
 the two: a decay kernel is <code>val_distance = (2025 - .t) / 10</code> and a Gaussian
-is <code>val_distance = (x / h)^2</code>, where the similarity form would need the
+is <code>val_distance = (x / h)^2</code>, where the relevance form would need the
 exponential written out each time. Distances also add, so several reasons to
 discount a record combine by addition.</p>
-<p>A similarity of zero counts a record not at all, but <code><a href="include.html">include()</a></code> is the way to
+<p>A relevance of zero counts a record not at all, but <code><a href="include.html">include()</a></code> is the way to
 leave records out: it clips exposure rather than multiplying through it.</p>
     </div>
     <div class="section level2">
     <h2 id="why-the-names-begin-with-val-">Why the names begin with <code>val_</code><a class="anchor" aria-label="anchor" href="#why-the-names-begin-with-val-"></a></h2>
 
 
-<p>A similarity or a distance is ordinarily a relation between two things. These
-arguments are functions of one record and one time, so the far end of the
-relation is left implicit: it is the valuation the analysis is aimed at, taken
-as a whole and at its as-at date. Leaving it implicit is what allows them to
-be written as ordinary variables of the experience record.</p>
+<p>Relevance is relevance <em>to</em> something, and a distance is a distance <em>from</em>
+it. Here that something is the valuation the analysis is aimed at, taken as
+a whole and at its as-at date: <code>val_relevance</code> says how far a record of
+experience bears on that valuation, and <code>val_distance</code> how far it is from
+it. Leaving the valuation implicit is what allows both to be written as
+ordinary variables of the experience record and of time.</p>
 <p>You write a <code>val_</code> argument yourself, and nothing derives it from valuation
-data. The prefix keeps <code>similarity</code> and <code>distance</code> free for a later, more
-general form that would take two records and two times.</p>
+data. The prefix keeps <code>relevance</code> and <code>distance</code> free for a later, more
+general form that would relate two records at two times.</p>
     </div>
     <div class="section level2">
-    <h2 id="the-bound-on-a-similarity">The bound on a similarity<a class="anchor" aria-label="anchor" href="#the-bound-on-a-similarity"></a></h2>
+    <h2 id="the-bound-on-a-relevance">The bound on a relevance<a class="anchor" aria-label="anchor" href="#the-bound-on-a-relevance"></a></h2>
 
 
-<p>A similarity is a proportion and must lie in \([0, 1]\); a distance,
+<p>A relevance is a proportion and must lie in \([0, 1]\); a distance,
 being \(-\log s\), must not be negative.</p>
 <p>Neither is enforced value by value. Both are expressions of the record and of
 time, so their values are not known until the walk, and testing each one
@@ -230,7 +231,7 @@ stated here.</p>
 range each expression can take – from the numbers written in it and the
 range of each column in the data – and refuses the calculation before
 reading a record if that range lies <strong>wholly</strong> outside the bound. So
-<code>val_similarity = 2</code> is refused, and so is a similarity given as a column
+<code>val_relevance = 2</code> is refused, and so is a relevance given as a column
 whose values run from 5 to 200.</p>
 <p>It refuses only what is certainly wrong. A range that merely permits a
 violation is accepted, because the arithmetic that derives it is

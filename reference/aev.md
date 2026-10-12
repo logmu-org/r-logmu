@@ -16,7 +16,7 @@ aev(
   mortality,
   include = NULL,
   weight = NULL,
-  val_similarity = NULL,
+  val_relevance = NULL,
   val_distance = NULL,
   breakdown = NULL,
   settings = NULL,
@@ -45,12 +45,12 @@ aev(
   A pronoun expression for the weight \\w\\, or a `variable`. `NULL`
   means a weight of 1, i.e. a count of lives.
 
-- val_similarity, val_distance:
+- val_relevance, val_distance:
 
   Two spellings of the second weighting factor \\s\\, related by \\d =
-  -\log s\\. Give one or the other. A similarity belongs in \\\[0, 1\]\\
-  and a distance must not be negative; see *Similarity and distance*,
-  *Why the names begin with `val_`* and *The bound on a similarity*.
+  -\log s\\. Give one or the other. A relevance belongs in \\\[0, 1\]\\
+  and a distance must not be negative; see *Relevance and distance*,
+  *Why the names begin with `val_`* and *The bound on a relevance*.
 
 - breakdown:
 
@@ -99,19 +99,19 @@ scales `V`, and so scales every confidence interval and residual read
 from the result. There is no default: see
 [`settings()`](https://r-logmu.logmu.org/reference/settings.md).
 
-## Similarity and distance
+## Relevance and distance
 
 A second weighting factor \\s\\ says how much a record should count at
 all, as opposed to how much of it counts. It differs from `weight` in
-where it appears: the weight is squared in \\V\\ and the similarity is
+where it appears: the weight is squared in \\V\\ and the relevance is
 not, so \\A\\ and \\E\\ take \\sw\\ while \\V\\ takes \\sw^2\\. The
-effect is that halving a record's similarity doubles the variance it
+effect is that halving a record's relevance doubles the variance it
 implies, while leaving the number of parameters a model may support
 unchanged.
 
 It may be written either way round, and they are one quantity:
 
-- `val_similarity` is \\s\\ itself, intended to lie in \\\[0, 1\]\\,
+- `val_relevance` is \\s\\ itself, intended to lie in \\\[0, 1\]\\,
   where 1 counts a record fully and 0 not at all.
 
 - `val_distance` is \\d = -\log s\\, so 0 counts a record fully,
@@ -119,31 +119,31 @@ It may be written either way round, and they are one quantity:
 
 Give one or the other, never both. `val_distance` is usually the easier
 of the two: a decay kernel is `val_distance = (2025 - .t) / 10` and a
-Gaussian is `val_distance = (x / h)^2`, where the similarity form would
+Gaussian is `val_distance = (x / h)^2`, where the relevance form would
 need the exponential written out each time. Distances also add, so
 several reasons to discount a record combine by addition.
 
-A similarity of zero counts a record not at all, but
+A relevance of zero counts a record not at all, but
 [`include()`](https://r-logmu.logmu.org/reference/include.md) is the way
 to leave records out: it clips exposure rather than multiplying through
 it.
 
 ## Why the names begin with `val_`
 
-A similarity or a distance is ordinarily a relation between two things.
-These arguments are functions of one record and one time, so the far end
-of the relation is left implicit: it is the valuation the analysis is
-aimed at, taken as a whole and at its as-at date. Leaving it implicit is
-what allows them to be written as ordinary variables of the experience
-record.
+Relevance is relevance *to* something, and a distance is a distance
+*from* it. Here that something is the valuation the analysis is aimed
+at, taken as a whole and at its as-at date: `val_relevance` says how far
+a record of experience bears on that valuation, and `val_distance` how
+far it is from it. Leaving the valuation implicit is what allows both to
+be written as ordinary variables of the experience record and of time.
 
 You write a `val_` argument yourself, and nothing derives it from
-valuation data. The prefix keeps `similarity` and `distance` free for a
-later, more general form that would take two records and two times.
+valuation data. The prefix keeps `relevance` and `distance` free for a
+later, more general form that would relate two records at two times.
 
-## The bound on a similarity
+## The bound on a relevance
 
-A similarity is a proportion and must lie in \\\[0, 1\]\\; a distance,
+A relevance is a proportion and must lie in \\\[0, 1\]\\; a distance,
 being \\-\log s\\, must not be negative.
 
 Neither is enforced value by value. Both are expressions of the record
@@ -155,7 +155,7 @@ What **logmu** does instead is analytic, and costs nothing. It works out
 the range each expression can take – from the numbers written in it and
 the range of each column in the data – and refuses the calculation
 before reading a record if that range lies **wholly** outside the bound.
-So `val_similarity = 2` is refused, and so is a similarity given as a
+So `val_relevance = 2` is refused, and so is a relevance given as a
 column whose values run from 5 to 200.
 
 It refuses only what is certainly wrong. A range that merely permits a

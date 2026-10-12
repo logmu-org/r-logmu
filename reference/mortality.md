@@ -23,6 +23,7 @@ These are the core types of mortality object:
 | Type | **datey** function | Notes |
 | Constant | [`mortality_const()`](https://r-logmu.logmu.org/reference/mortality_const.md) |  |
 | Age-period | [`mortality_table()`](https://r-logmu.logmu.org/reference/mortality_table.md) | Mortality rates that are smooth at an annual scale |
+| Gompertz | [`gompertz_mortality()`](https://r-logmu.logmu.org/reference/gompertz_mortality.md) | Log mu linear in age and in time |
 | Model | TBC |  |
 
 You can build on these:
@@ -120,11 +121,5 @@ log_mu(mortality, .i, .t) # log(-log(1 - 0.01)) = -4.600149
 #> [1] -4.600149
 base <- mortality_const(log_mu = -4)
 mortality(base + 0.05)   # scale mu up by exp(0.05)
-#> $ast
-#> call `+`
-#>   obj <mortality_const>
-#>   lit 0.05
-#> 
-#> attr(,"class")
-#> [1] "mortality_expr" "mortality"      "logmu_function"
+#> <mortality_expr> (<mortality_const> + 0.05)
 ```

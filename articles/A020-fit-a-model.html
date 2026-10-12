@@ -18,6 +18,7 @@
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
 <script src="../extra.js"></script><meta property="og:title" content="Fit a model">
+<link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -112,8 +113,271 @@
 
     
     
-<p>TODO</p>
-  </main>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/logmu-org/r-logmu" class="external-link">logmu</a></span><span class="op">)</span></span></code></pre></div>
+<p>A mortality model in <strong>logmu</strong> is a reference mortality
+with a proportional adjustment on top:</p>
+<p><span class="math display">\log\mu = \log\mu^\text{ref} + \sum_j
+\beta_j X_j</span></p>
+<p>where the <span class="math inline">X_j</span> are covariates you
+write as functions of the individual and of time, and the <span class="math inline">\beta_j</span> are what <code><a href="../reference/fit.html">fit()</a></code>
+estimates, by maximum weighted log-likelihood. The reasoning is in <a href="B040-proportional-hazards.html">Proportional hazards</a>; this
+article is about running it.</p>
+<div class="section level2">
+<h2 id="a-portfolio-whose-truth-is-known">A portfolio whose truth is known<a class="anchor" aria-label="anchor" href="#a-portfolio-whose-truth-is-known"></a>
+</h2>
+<p>The trouble with real data is that you never learn whether the fit
+was right. So this walkthrough uses data drawn from a mortality that is
+written down first, by <code><a href="../reference/simulate.html">simulate()</a></code>, and every result below
+can be checked against it.</p>
+<p>The population is a data frame with a <code>birth</code> column and
+whatever else the model will read. Here that is sex and a pension, plus
+a start date for those who retire during the period.</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">2025</span><span class="op">)</span></span>
+<span><span class="va">lives</span> <span class="op">&lt;-</span> <span class="fl">4000</span></span>
+<span></span>
+<span><span class="va">population</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  birth     <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2015</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fl">55</span><span class="op">:</span><span class="fl">89</span>, <span class="va">lives</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  sex       <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"male"</span>, <span class="st">"female"</span><span class="op">)</span>, <span class="va">lives</span>, replace <span class="op">=</span> <span class="cn">TRUE</span>, prob <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.6</span>, <span class="fl">0.4</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  pension   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">lives</span>, <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fl">12000</span><span class="op">)</span>, <span class="fl">0.7</span><span class="op">)</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  E2R_start <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2015</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="va">lives</span><span class="op">)</span> <span class="op">&lt;</span> <span class="fl">0.25</span>, <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="va">lives</span>, <span class="fl">0</span>, <span class="fl">3</span><span class="op">)</span>, <span class="fl">0</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>The truth is a Gompertz curve, steeper in age than the standard one,
+with men 40% heavier than women:</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">truth</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/mortality.html">mortality</a></span><span class="op">(</span></span>
+<span>  <span class="kw">if</span> <span class="op">(</span><span class="va">.i</span><span class="op">$</span><span class="va">sex</span> <span class="op">==</span> <span class="st">"male"</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>log_mu_0 <span class="op">=</span> <span class="op">-</span><span class="fl">3.4</span>, slope_x <span class="op">=</span> <span class="fl">0.12</span>, slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span>  <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></span>
+<span>    <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>log_mu_0 <span class="op">=</span> <span class="op">-</span><span class="fl">3.8</span>, slope_x <span class="op">=</span> <span class="fl">0.12</span>, slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span>  <span class="op">}</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">portfolio</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulate.html">simulate</a></span><span class="op">(</span><span class="va">truth</span>, lives <span class="op">=</span> <span class="va">population</span>,</span>
+<span>                      exp_start <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2015</span><span class="op">)</span>, exp_end <span class="op">=</span> <span class="fu">datey</span><span class="fu">::</span><span class="fu"><a href="https://r-datey.logmu.org/reference/datey.html" class="external-link">datey</a></span><span class="op">(</span><span class="fl">2020</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">portfolio</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># Exp data: 4,000 × 6 (5 yr)</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   Start:  2015-01-01.0</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   End:    2020-01-01.0</span></span></span>
+<span><span class="co">#&gt;           birth sex    pension       E2R_start      E2R_end E2R_died</span></span>
+<span><span class="co">#&gt;         <span style="color: #949494; font-style: italic;">&lt;datey&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;datey&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;datey&gt;</span> <span style="color: #949494; font-style: italic;">&lt;lgl&gt;</span>   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 1948-01-01.0 female   <span style="text-decoration: underline;">31</span>063    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 1949-01-01.0 male     <span style="text-decoration: underline;">18</span>096 2017-05-07.5731 2018-05-11.5 TRUE    </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 1935-01-01.0 male     <span style="text-decoration: underline;">16</span>960    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 1960-01-01.0 male     <span style="text-decoration: underline;">13</span>400    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 1938-01-01.0 female   <span style="text-decoration: underline;">40</span>107    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 1951-01-01.0 male      <span style="text-decoration: underline;">1</span>867    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 1948-01-01.0 female    <span style="text-decoration: underline;">3</span>169    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 1949-01-01.0 male      <span style="text-decoration: underline;">6</span>836    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 1957-01-01.0 male     <span style="text-decoration: underline;">11</span>170    2015-01-01.0 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 1934-01-01.0 male     <span style="text-decoration: underline;">24</span>224 2015-08-25.7937 2020-01-01.0 FALSE   </span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 3,990 more rows</span></span></span></code></pre></div>
+<p>Each life is followed from its start until it dies, or until the
+period ends, and a death is recorded to the day. What comes back is an
+<code>exp_data</code> shaped exactly like data you would load
+yourself.</p>
+</div>
+<div class="section level2">
+<h2 id="the-model">The model<a class="anchor" aria-label="anchor" href="#the-model"></a>
+</h2>
+<p>A <code>model</code> is a reference mortality and a set of
+covariates, and nothing else. The reference here is the standard
+Gompertz curve with its time trend switched off, which is deliberately
+not the truth: the level, the sex difference and the age slope are all
+left for the fit to find.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">reference</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/gompertz_mortality.html">gompertz_mortality</a></span><span class="op">(</span>slope_t <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">sex_age</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/model.html">model</a></span><span class="op">(</span><span class="va">reference</span>, <span class="fu"><a href="../reference/covariates.html">covariates</a></span><span class="op">(</span></span>
+<span>  male   <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">sex</span> <span class="op">==</span> <span class="st">"male"</span>,</span>
+<span>  female <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">sex</span> <span class="op">==</span> <span class="st">"female"</span>,</span>
+<span>  age    <span class="op">=</span> <span class="va">.x</span> <span class="op">-</span> <span class="fl">75</span></span>
+<span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<p>Each covariate is a pronoun expression: <code>.i$sex</code> reads a
+column, <code>.x</code> is age, <code>.t</code> would be calendar time.
+A comparison gives an indicator, 1 or 0, so <code>male</code> and
+<code>female</code> are two levels rather than one level plus a
+difference, and <code>age</code> is centred so that its coefficient is a
+slope and the levels are read at 75.</p>
+<p>Writing the two sex indicators as <code><a href="../reference/covariates.html">disjoint()</a></code> instead of
+<code><a href="../reference/covariates.html">covariates()</a></code> tells the engine that no individual can be in
+both, which lets it leave their cross-terms out of the information
+matrix. It makes no difference to the answer and a large difference to
+the cost once there are many groups.</p>
+</div>
+<div class="section level2">
+<h2 id="fitting-it">Fitting it<a class="anchor" aria-label="anchor" href="#fitting-it"></a>
+</h2>
+<p><code>overdispersion</code> has no default, because mortality data is
+always overdispersed and by an amount the analyst has to own. Simulated
+data is the one case where 1 is the truth.</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">f</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fit.html">fit</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">sex_age</span>, overdispersion <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">f</span></span>
+<span><span class="co">#&gt; &lt;fit: 3 terms, 5 iterations, 5 walks of the data&gt;</span></span>
+<span><span class="co">#&gt;   include         all records</span></span>
+<span><span class="co">#&gt;   weight          lives</span></span>
+<span><span class="co">#&gt;   data            783 deaths, 16709 years of exposure</span></span>
+<span><span class="co">#&gt;   test mortality  logmu default</span></span>
+<span><span class="co">#&gt;                   Aw 783   Ew 515.53   Ew^2 515.53   Z 1</span></span>
+<span><span class="co">#&gt;                   log A/E 0.41794 ± 0.044043 (1 sd) or ± 0.086322 (95%), at overdispersion 1</span></span>
+<span><span class="co">#&gt;   overdispersion  1</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;        estimate std_error conf_95pc</span></span>
+<span><span class="co">#&gt; male   0.433759  0.059011  0.115659</span></span>
+<span><span class="co">#&gt; female 0.001018  0.074462  0.145944</span></span>
+<span><span class="co">#&gt; age    0.022448  0.004797  0.009402</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; correlation</span></span>
+<span><span class="co">#&gt;         male female</span></span>
+<span><span class="co">#&gt; female  0.37       </span></span>
+<span><span class="co">#&gt; age    -0.67  -0.56</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; L -2728.393   p 3   L_P -2731.393   k 3</span></span></code></pre></div>
+<p>Reading downwards: the header says what the fit was run over and what
+it saw – deaths, exposure, and the crude A/E on
+<code>test_mortality</code>, which is the yardstick the <span class="math inline">Z</span> scale is measured on. With no weight, <span class="math inline">w^2 = w</span> and <span class="math inline">Z</span> is exactly 1.</p>
+<p>The coefficient table gives each estimate with two widths, and both
+are named: <code>std_error</code> is one standard deviation, and
+<code>conf_95pc</code> is the 95% half-width that the A/E charts draw,
+<span class="math inline">1.96</span> times the first. Against the
+truth: <code>male</code> should be <span class="math inline">-3.4 -
+(-3.8 + 0) = 0.4</span> at age 75 and <code>female</code> should be 0,
+and <code>age</code> should be <span class="math inline">0.12 - 0.10 =
+0.02</span>. Every one of them is inside its <code>conf_95pc</code>.</p>
+<p>The correlation matrix underneath is the covariance of the estimates
+with the units taken out. The negative correlation between the levels
+and the slope is the usual one: a higher level and a steeper slope
+explain the same deaths, and the data cannot quite separate them. It is
+why the coefficients should be read together and not one at a time.</p>
+<p>The last line is the log-likelihood <span class="math inline">L</span>, the penalty <span class="math inline">p</span> and the penalised log-likelihood <span class="math inline">L_\text{P} = L - p</span> that models are compared
+on. With no weight <span class="math inline">p</span> is exactly the
+number of terms, <code>k</code>. The reasoning for that is in <a href="B050-suddenly-aic.html">Suddenly AIC</a>, and the comparison
+itself is the <a href="A030-test-multiple-models.html">next
+article</a>.</p>
+<p><code><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary()</a></code> returns all of this as an object, so
+<code>summary(f)$coefficients</code> and
+<code>summary(f)$correlation</code> can be programmed against;
+<code><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef()</a></code> and <code><a href="https://rdrr.io/r/stats/vcov.html" class="external-link">vcov()</a></code> give the estimates and their
+covariance.</p>
+</div>
+<div class="section level2">
+<h2 id="where-the-iteration-starts-and-why-it-rarely-matters">Where the iteration starts, and why it rarely matters<a class="anchor" aria-label="anchor" href="#where-the-iteration-starts-and-why-it-rarely-matters"></a>
+</h2>
+<p>Every fit starts at <span class="math inline">\beta = 0</span>, which
+is the reference mortality itself. The header’s “5 iterations, 5 walks
+of the data” is what that costs: Newton-Raphson on a log-likelihood this
+well behaved converges in a handful of steps. A step that would
+overshoot is halved until it does not, and each halving is another walk
+of the data, so the two counts differ when that has happened. Here it
+has not.</p>
+<p>So the starting point tends not to matter, and
+<code><a href="../reference/compare_models.html">compare_models()</a></code> has no argument for it at all. When it
+does matter – a reference so far from the data that the first steps are
+wasted, or a model on the edge of what the data supports – the right
+move is not to hunt for a better <span class="math inline">\beta</span>
+but to move the reference: translate <span class="math inline">\log\mu^\text{ref}</span> by a weighted sum of the
+covariates so that <span class="math inline">\beta = 0</span> is where
+the data already is. <code><a href="../reference/fit.html">fit()</a></code> keeps a <code>start</code>
+argument as an escape hatch for the rare case where that is not
+enough.</p>
+</div>
+<div class="section level2">
+<h2 id="the-fitted-model-is-a-mortality">The fitted model is a mortality<a class="anchor" aria-label="anchor" href="#the-fitted-model-is-a-mortality"></a>
+</h2>
+<p><code>f$mortality</code> is a <code>mortality</code> like any other,
+with the coefficients folded in. It can go straight back into
+<code><a href="../reference/aev.html">aev()</a></code>, or be used as the reference of a further model,
+which is how fitting is layered.</p>
+<p>Against the data it was fitted to, an A/E on it comes out at 100% by
+construction – the score equations are zero at the maximum – so the
+useful question is how it does on subsets the fit did not see as such.
+<code><a href="../reference/diagnose.html">diagnose()</a></code> asks that for whatever breakdowns you name,
+reusing the fit’s own include, weight and overdispersion, and crossing
+the data once for all of them:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">d</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/diagnose.html">diagnose</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">f</span>,</span>
+<span>              breakdown <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>age <span class="op">=</span> <span class="fu"><a href="../reference/include.html">ages</a></span><span class="op">(</span><span class="fl">55</span>, <span class="fl">95</span>, by <span class="op">=</span> <span class="fl">10</span><span class="op">)</span>,</span>
+<span>                               pension <span class="op">=</span> <span class="fu"><a href="../reference/include.html">bands</a></span><span class="op">(</span><span class="va">.i</span><span class="op">$</span><span class="va">pension</span>, thresholds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">8000</span>, <span class="fl">16000</span><span class="op">)</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">d</span></span>
+<span><span class="co">#&gt; &lt;diagnosis: 1 candidate, 2 breakdowns&gt;</span></span>
+<span><span class="co">#&gt;   include         all records</span></span>
+<span><span class="co">#&gt;   weight          lives</span></span>
+<span><span class="co">#&gt;   overdispersion  1</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; ---- fit</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;        estimate std_error conf_95pc</span></span>
+<span><span class="co">#&gt; male   0.433759  0.059011  0.115659</span></span>
+<span><span class="co">#&gt; female 0.001018  0.074462  0.145944</span></span>
+<span><span class="co">#&gt; age    0.022448  0.004797  0.009402</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; correlation</span></span>
+<span><span class="co">#&gt;         male female</span></span>
+<span><span class="co">#&gt; female  0.37       </span></span>
+<span><span class="co">#&gt; age    -0.67  -0.56</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; A/E by age</span></span>
+<span><span class="co">#&gt; &lt;aev[4]&gt;</span></span>
+<span><span class="co">#&gt;   group  name   A         E         V       A/E   95% conf   dev resid</span></span>
+<span><span class="co">#&gt; 1   age 55-65  23  23.19364  23.19364 0.9916510 0.40697113 -0.04026476</span></span>
+<span><span class="co">#&gt; 2   age 65-75  78  85.32419  85.32419 0.9141604 0.21218369 -0.80467973</span></span>
+<span><span class="co">#&gt; 3   age 75-85 285 270.26062 270.26062 1.0545377 0.11922208  0.88860804</span></span>
+<span><span class="co">#&gt; 4   age 85-95 397 404.22164 404.22164 0.9821345 0.09748512 -0.36026899</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; A/E by pension</span></span>
+<span><span class="co">#&gt; &lt;aev[3]&gt;</span></span>
+<span><span class="co">#&gt;     group       name   A        E        V       A/E  95% conf  dev resid</span></span>
+<span><span class="co">#&gt; 1 pension     &lt; 8000 225 249.1816 249.1816 0.9029558 0.1241624 -1.5577255</span></span>
+<span><span class="co">#&gt; 2 pension 8000-16000 293 272.0849 272.0849 1.0768699 0.1188217  1.2522234</span></span>
+<span><span class="co">#&gt; 3 pension   &gt;= 16000 265 261.7336 261.7336 1.0124798 0.1211486  0.2014829</span></span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">d</span><span class="op">)</span></span></code></pre></div>
+<p><img src="A020-fit-a-model_files/figure-html/diagnose-plot-1.png" class="r-plt" alt="" width="768"></p>
+<p>The age bands sit on 100% within their intervals, which is what a
+correct age slope looks like. The pension bands do too, and should: the
+truth has no pension effect, so a model without one is right not to find
+it. A fit to real data would be judged the same way, on the breakdowns
+that matter to the liabilities.</p>
+</div>
+<div class="section level2">
+<h2 id="weighting-by-amounts">Weighting by amounts<a class="anchor" aria-label="anchor" href="#weighting-by-amounts"></a>
+</h2>
+<p>Weight the log-likelihood by pension and the fit follows the
+money:</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/fit.html">fit</a></span><span class="op">(</span><span class="va">portfolio</span>, <span class="va">sex_age</span>, weight <span class="op">=</span> <span class="va">.i</span><span class="op">$</span><span class="va">pension</span>, overdispersion <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="co">#&gt; &lt;fit: 3 terms, 5 iterations, 5 walks of the data&gt;</span></span>
+<span><span class="co">#&gt;   include         all records</span></span>
+<span><span class="co">#&gt;   weight          .i$pension</span></span>
+<span><span class="co">#&gt;   data            783 deaths, 16709 years of exposure</span></span>
+<span><span class="co">#&gt;   test mortality  logmu default</span></span>
+<span><span class="co">#&gt;                   Aw 12120164   Ew 7866351   Ew^2 2.0255e+11   Z 25748</span></span>
+<span><span class="co">#&gt;                   log A/E 0.43228 ± 0.057212 (1 sd) or ± 0.11213 (95%), at overdispersion 1</span></span>
+<span><span class="co">#&gt;   overdispersion  1</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;        estimate std_error conf_95pc</span></span>
+<span><span class="co">#&gt; male    0.42478  0.076321   0.14959</span></span>
+<span><span class="co">#&gt; female  0.05936  0.093927   0.18409</span></span>
+<span><span class="co">#&gt; age     0.02294  0.006162   0.01208</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; correlation</span></span>
+<span><span class="co">#&gt;         male female</span></span>
+<span><span class="co">#&gt; female  0.37       </span></span>
+<span><span class="co">#&gt; age    -0.67  -0.55</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; L -1639.101   p 2.995653   L_P -1642.097   k 3</span></span></code></pre></div>
+<p>Two things change. The header now measures <span class="math inline">Z = \mathrm{E}w^2/\mathrm{E}w</span> on
+<code>test_mortality</code>, because it is no longer 1, and the penalty
+is no longer a count. The estimates are close to the unweighted ones
+here because the truth has no pension effect; on a real portfolio where
+mortality varies with amount, the two fits would differ, and the
+weighted one is the one the liabilities care about.</p>
+<p>What to do with several candidate models is the <a href="A030-test-multiple-models.html">next article</a>.</p>
+</div>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
+    </nav></aside>
 </div>
 
 
