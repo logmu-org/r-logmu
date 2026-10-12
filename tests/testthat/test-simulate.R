@@ -95,8 +95,8 @@ test_that("with the draw pinned, a death whose midday would overrun its cap is r
   target <- mu * (2.5 - 0.3 / 365)
   local_mocked_bindings(runif = function(n, ...) rep(exp(-target), n), .package = "stats")
   lives <- data.frame(birth = years(c(1950, 1940)))
-  # Subsetting rather than recycling, which would strip the `datey` class.
-  lives$E2R_cap <- datey::datey(2017, 7, 2, day_fraction = 0.4)[c(1L, 1L)]
+  # `rep()` keeps the `datey` class from datey 0.1.2, which DESCRIPTION pins.
+  lives$E2R_cap <- rep(datey::datey(2017, 7, 2, day_fraction = 0.4), 2L)
 
   data <- simulate(mortality_const(log_mu = log(mu)), lives = lives, exp_start = 2015, exp_end = 2020)
   expect_identical(unclass(data)$E2R_died, c(TRUE, TRUE))
@@ -262,4 +262,26 @@ test_that("bad populations are refused with a reason", {
   expect_error(simulate(by_sex, lives = lives[1:10, 1:3], exp_start = 2015, exp_end = 2020,
                         time_scale = 0.3),
                "`time_scale`")
+})
+
+test_that("a per-life bound is a datey clipped to the period, with NA as the period's own bound", {
+  # The bound is computed on dateys with `pmax()`/`pmin()`, which datey 0.1.1
+  # got wrong (the limit for every life); DESCRIPTION pins 0.1.2.
+  starts <- c(years(2010), datey::NA_datey_, years(2017))
+  start <- years(2015)
+  clipped <- simulate_bound(starts, "E2R_start", 3L, start, later = TRUE)
+  expect_true(datey::is_datey(clipped))
+  expect_identical(clipped, years(c(2015, 2015, 2017)))
+
+  caps <- c(years(2018), datey::NA_datey_, years(2022))
+  cap <- years(2020)
+  expect_identical(simulate_bound(caps, "E2R_cap", 3L, cap, later = FALSE),
+                   years(c(2018, 2020, 2020)))
+
+  absent <- simulate_bound(NULL, "E2R_start", 3L, start, later = TRUE)
+  expect_true(datey::is_datey(absent))
+  expect_identical(absent, years(c(2015, 2015, 2015)))
+
+  expect_error(simulate_bound(c(2010, 2016), "E2R_start", 2L, start, later = TRUE),
+               "must be a `datey` column")
 })

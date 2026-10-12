@@ -22,7 +22,7 @@ BugReports: https://github.com/logmu-org/r-logmu/issues
 Depends:
     R (>= 4.6.0)
 Imports:
-    datey,
+    datey (>= 0.1.2),
     ggplot2 (>= 4.0.0),
     grid,
     gtable,

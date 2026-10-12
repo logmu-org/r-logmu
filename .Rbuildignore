@@ -11,8 +11,7 @@
 ^\.positai$
 ^\.claude$
 ^\.Rhistory$
-^CLAUDE\.md$
-^_TODO.md$
+^_TODO\.txt$
 ^CRAN-SUBMISSION$
 ^codecov\.yml$
 # Compiled objects. `R CMD build` installs the package to build the vignettes,

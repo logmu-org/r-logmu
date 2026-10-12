@@ -1,4 +1,4 @@
-﻿# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
+# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
 # Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
 # THE SITE DOES NOT NEED REBUILDING ON EVERY PUSH. Trimmed on 2026-08-31 to
 # stay inside the free minutes: a published release rebuilds it, and
@@ -39,12 +39,7 @@ jobs:
           needs: website
 
       - name: Build site
-        run: |
-          # `_TODO.md` was untracked on 2026-08-31, so a checkout no longer has
-          # it and naming it here would warn on every build. `CLAUDE.md` stays
-          # in the repo but is kept off the website.
-          file.remove("CLAUDE.md")
-          pkgdown::build_site_github_pages(new_process = FALSE, install = FALSE)
+        run: pkgdown::build_site_github_pages(new_process = FALSE, install = FALSE)
         shell: Rscript {0}
 
       - name: Deploy to GitHub pages

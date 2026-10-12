@@ -12,6 +12,11 @@ template:
     secondary: '#FF5722'
     navbar-light-bg: hsl(262, 50%, 90%)
     navbar-dark-bg: hsl(262, 50%, 35%)
+  includes:
+    # Every page sets Latin text in Lisnoti Regular, so fetch it alongside the
+    # stylesheets. pkgdown inserts this verbatim, so the path is from the root.
+    in_header: |
+      <link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin>
 home:
   links:
   - text: Suggest a new feature

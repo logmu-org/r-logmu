@@ -126,7 +126,7 @@ simulate.mortality <- function(object,
 }
 
 # The population made ready: columns as a list, `birth` checked, each life's
-# observation window `from` and `to` in clicks, and lives with no window
+# observation window `from` and `to` as `datey`s, and lives with no window
 # dropped. Everything about the input is settled here, once, so `nsim` draws
 # share it.
 simulate_population <- function(lives, exp_start, exp_end) {
@@ -174,24 +174,19 @@ simulate_population <- function(lives, exp_start, exp_end) {
        exp_start = exp_start, exp_end = exp_end)
 }
 
-# A per-life bound clipped to the period, IN DOUBLE CLICKS: the later of a start
+# A per-life bound clipped to the period, as a `datey`: the later of a start
 # and `exp_start`, or the earlier of a cap and `exp_end`. An absent column, or
-# an NA in it, is the period's own bound.
-#
-# Clicks rather than dateys throughout the walk, for two reasons. Two click
-# counts of a billion each overflow an R integer when added, and a double
-# carries every integer to 2^53 exactly. And `pmax()` on a `datey` does not
-# work -- it hands back the limit for every element -- so the arithmetic is
-# done on bare numbers and a `datey` is built once, at the end.
+# an NA in it, is the period's own bound. `rep()`, `pmax()` and `pmin()` on a
+# `datey` need datey 0.1.2, which DESCRIPTION pins -- 0.1.1 had no `rep`
+# method, and base `pmax()` recycles with `rep()`, so it handed back the limit
+# for every life.
 simulate_bound <- function(column, name, n, limit, later) {
-  limit <- as.double(unclass(limit))
   if (is.null(column)) return(rep(limit, n))
   if (!datey::is_datey(column)) {
     stop("`lives$", name, "` must be a `datey` column.", call. = FALSE)
   }
-  value <- as.double(unclass(column))
-  value[is.na(value)] <- limit
-  if (later) pmax(value, limit) else pmin(value, limit)
+  column[is.na(column)] <- limit
+  if (later) pmax(column, limit) else pmin(column, limit)
 }
 
 # A `datey` from double clicks. `datey()` takes years and rounds to the click,
@@ -202,14 +197,17 @@ simulate_datey <- function(clicks) {
 
 # One dataset: the walk over the clicks and the E2R triple it leaves behind.
 #
-# EVERYTHING IS IN CLICKS AND MIRRORS `TimeGrid.hpp`: from each life's own
-# `from`, full steps of `clicks` sampled at their exact midpoints, then whatever
-# is left to `to` sampled at its midpoint with banker's halving where the sum is
-# odd. The walk is vectorised over lives and loops over steps, so a population
-# of any size costs one `log_mu()` call per step of the longest window.
+# EVERYTHING IS IN DOUBLE CLICKS AND MIRRORS `TimeGrid.hpp`: from each life's
+# own `from`, full steps of `clicks` sampled at their exact midpoints, then
+# whatever is left to `to` sampled at its midpoint with banker's halving where
+# the sum is odd. Clicks rather than dateys because the midpoint rule is
+# integer arithmetic on clicks, two click counts of a billion each overflow an
+# R integer when added, and a double carries every integer to 2^53 exactly.
+# The walk is vectorised over lives and loops over steps, so a population of
+# any size costs one `log_mu()` call per step of the longest window.
 simulate_one <- function(object, population, clicks) {
-  from <- population$from
-  to <- population$to
+  from <- as.double(unclass(population$from))
+  to <- as.double(unclass(population$to))
   n <- length(from)
   clicks <- as.double(clicks)
   clicks_per_year <- as.double(unclass(datey::durationy(1)))
@@ -254,7 +252,7 @@ simulate_one <- function(object, population, clicks) {
   end <- ifelse(died, pmin(midday, to), to)
 
   columns <- population$columns
-  columns$E2R_start <- simulate_datey(from)
+  columns$E2R_start <- population$from
   columns$E2R_end <- simulate_datey(end)
   columns$E2R_died <- died
 
