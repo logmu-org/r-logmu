@@ -26,6 +26,8 @@ knitr::opts_chunk$set(
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 <!-- badges: end -->
 
+Documentation: <https://r-logmu.logmu.org/>
+
 If you are setting or reviewing base mortality for defined benefit pension, annuity or life assurance
 liabilities then **logmu** is designed for you[^not-for],
 with state of the art tooling, including support for postcode-based models, and performance at scale.

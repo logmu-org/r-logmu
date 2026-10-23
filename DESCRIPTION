@@ -17,7 +17,7 @@ Description: High-performance actuarial mortality experience analysis and
     Calculations use SIMD vectorisation and multi-threading for
     performance.
 License: Apache License (>= 2)
-URL: https://github.com/logmu-org/r-logmu, https://r-logmu.logmu.org/
+URL: https://r-logmu.logmu.org/, https://github.com/logmu-org/r-logmu
 BugReports: https://github.com/logmu-org/r-logmu/issues
 Depends:
     R (>= 4.6.0)
