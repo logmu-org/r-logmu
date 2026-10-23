@@ -4,7 +4,7 @@ output: github_document
 
 <!--
 **Make sure you're editing README.Rmd, *not* README.md!!**
-(README.md is generated from README.Rmd.)
+(README.md and index.html are generated from README.Rmd.)
 
 After changing this file, run: devtools::build_readme()
 -->
@@ -18,7 +18,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-# logmu <img src="man/figures/logo.png" align="right" />
+# logmu <img src="man/figures/logo.png" align="right" alt="logmu logo" />
 <!-- badges: start -->
 
 [![R-CMD-check](https://github.com/logmu-org/r-logmu/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/logmu-org/r-logmu/actions/workflows/R-CMD-check.yaml)

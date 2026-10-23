@@ -1,5 +1,6 @@
 ﻿---
 title: "Overdispersion and quasi-log-likelihood"
+description: "Mortality experience analysis fundamentals, part 6: the causes of overdispersion and how to allow for it using quasi-log-likelihood."
 output:
   rmarkdown::html_vignette:
     mathjax: default

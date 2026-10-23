@@ -42,6 +42,28 @@ namespace tier
 // length type straight in.
 using vec_size = std::ptrdiff_t;
 
+// An annual mortality table as the lookup reads it: log mu in `tx` order, periods first, then ages,
+// with the instant and age of the first cell in clicks.
+struct annual_log_mu_table
+{
+  const double* log_mu;
+  int period_count;
+  int age_count;
+  int t0_clicks;
+  int x0_clicks;
+};
+
+// SCALAR FORMS, ONE PER TIER, AND THE REASON THEY ARE HERE AT ALL. A scalar `exp` compiled outside
+// the tiers would be a different implementation from the vector kernel, or the same EVE code built
+// with different ISA flags, and either way the two could disagree in the last place. Compiled inside
+// each tier and chosen by the same dispatch, the scalar and vector forms of a tier run the same
+// arithmetic and give identical answers, so whether a value took the scalar or the vector path can
+// never show in a result.
+#define DECLARE_SCALARS                                                \
+double exp_S_S(double);                                                \
+double log_S_S(double);                                                \
+double table_log_mu_SS_S(const annual_log_mu_table&, int b_clicks, int t_clicks);
+
 #define DECLARE_WRAPPER1(NAME) \
 void NAME##_V_V(vec_size, const double*, double*);
 
@@ -64,6 +86,7 @@ void NAME##_SSV_V(vec_size,       double ,       double , const double*, double*
 namespace NS                                                   \
 {                                                              \
   int simd_lanes();                                            \
+  DECLARE_SCALARS                                              \
   DECLARE_WRAPPER1(neg)                                        \
   DECLARE_WRAPPER1(exp)                                        \
   DECLARE_WRAPPER1(expm1)                                      \
@@ -95,6 +118,21 @@ const char* active_tier();
 
 // SIMD lane count of selected tier (2 baseline, 4 avx2, 8 avx512).
 int active_lanes();
+
+DECLARE_SCALARS
+
+// FOR TESTS ONLY: one named tier's scalar and vector forms, bypassing selection, so that every tier
+// this CPU can run is checked in one process instead of one per `LOGMU_TIER` setting. Null where
+// this build or this CPU lacks the tier; the CPU checks are the ones selection makes.
+struct tier_forms
+{
+  double (*exp_S_S)(double);
+  double (*log_S_S)(double);
+  double (*table_log_mu_SS_S)(const annual_log_mu_table&, int, int);
+  void (*exp_V_V)(vec_size, const double*, double*);
+  void (*log_V_V)(vec_size, const double*, double*);
+};
+const tier_forms* forms_of_tier(const char* name);
 
 DECLARE_WRAPPER1(neg)
 DECLARE_WRAPPER1(exp)

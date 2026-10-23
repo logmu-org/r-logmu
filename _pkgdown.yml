@@ -18,6 +18,12 @@ template:
     in_header: |
       <link rel="preload" href="/fonts/Lisnoti-woff2/Lisnoti-Regular-latin.woff2" as="font" type="font/woff2" crossorigin>
 home:
+  # The meta description search engines show. DESCRIPTION's is too long for
+  # one, so the home page gets its own.
+  description: >-
+    Actuarial mortality experience analysis and modelling in R: A/E with
+    confidence intervals, proportional hazards models and model selection by
+    AIC.
   links:
   - text: Suggest a new feature
     href: https://github.com/logmu-org/r-logmu/discussions
@@ -78,7 +84,8 @@ navbar:
       - text: Other packages
       - text: datey
         href: https://r-datey.logmu.org/
-      - text: nxp TBC
+      - text: naxp
+        href: https://r-naxp.logmu.org/
 
 articles:
 - title: How to

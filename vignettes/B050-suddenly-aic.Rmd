@@ -1,5 +1,6 @@
 ﻿---
 title: "Suddenly AIC"
+description: "Mortality experience analysis fundamentals, part 5: choosing between mortality models using Akaike's information criterion (AIC)."
 output:
   rmarkdown::html_vignette:
     mathjax: default

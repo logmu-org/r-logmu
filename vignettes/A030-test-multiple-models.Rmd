@@ -1,5 +1,6 @@
 ---
 title: "Test multiple models"
+description: "Compare candidate mortality models with compare_models() in logmu, which ranks them by penalised log-likelihood (AIC), allowing for weights and overdispersion."
 output:
   rmarkdown::html_vignette:
     mathjax: default

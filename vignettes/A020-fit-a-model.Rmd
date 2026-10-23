@@ -1,5 +1,6 @@
 ---
 title: "Fit a model"
+description: "Fit a proportional hazards mortality model in R with logmu: covariates on a reference mortality, maximum likelihood fitting and weighting by amounts."
 output:
   rmarkdown::html_vignette:
     mathjax: default

@@ -1,5 +1,6 @@
 ﻿---
 title: "Incoherent rating factors"
+description: "Mortality experience analysis fundamentals, part 7: why rating factors must be coherent, the four conditions for coherence, and pension as a rating factor."
 output:
   rmarkdown::html_vignette:
     mathjax: default

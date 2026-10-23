@@ -5,7 +5,7 @@
 &#10;After changing this file, run: devtools::build_readme()
 -->
 
-# logmu <img src="man/figures/logo.png" align="right" />
+# logmu <img src="man/figures/logo.png" align="right" alt="logmu logo" />
 
 <!-- badges: start -->
 

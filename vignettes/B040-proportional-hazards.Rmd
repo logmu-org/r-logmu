@@ -1,5 +1,6 @@
 ﻿---
 title: "Proportional hazards"
+description: "Mortality experience analysis fundamentals, part 4: why proportional hazards models are probably all you need for mortality modelling."
 output:
   rmarkdown::html_vignette:
     mathjax: default

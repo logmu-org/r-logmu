@@ -16,7 +16,7 @@
 #include <variant>
 #include <vector>
 #include "datey.h" // yearsFromClicks, roundBankers, isValidDatey, isValidDurationy
-#include "vec_ops/vec_ops.hpp" // tier::exp_V_V, tier::log_V_V -- R-free, so the core stays R-free
+#include "vec_ops/vec_ops.hpp" // tier::exp_V_V, tier::exp_S_S and friends -- R-free, so the core stays R-free
 #include "veil/Block.hpp"
 #include "veil/ColumnView.hpp"
 #include "veil/Instruction.hpp"
@@ -126,8 +126,10 @@ inline double unaryNumber(Op op, double x)
         case Op::Neg: return -x;
         case Op::Abs: return std::abs(x);
         case Op::Sqrt: return std::sqrt(x);
-        case Op::Exp: return std::exp(x);
-        case Op::Log: return std::log(x);
+        // THE TIER'S OWN SCALAR FORMS, not the C library's. These two also have a vector kernel, and
+        // only the same tier's scalar form is guaranteed to agree with it to the bit.
+        case Op::Exp: return tier::exp_S_S(x);
+        case Op::Log: return tier::log_S_S(x);
         case Op::Log10: return std::log10(x);
         case Op::Expm1: return std::expm1(x);
         case Op::Log1p: return std::log1p(x);
@@ -626,15 +628,15 @@ private:
     // arithmetic around it, against 16% on the table lookup and 12% on the scalar spine. One op
     // is therefore most of the calculation.
     //
-    // THE ULP PROMISE IS WEAKER FOR THESE TWO THAN FOR ARITHMETIC, and that is not a concession
-    // made here. Neither `exp` nor `log` is correctly rounded by any mainstream library -- IEEE
-    // 754 recommends it for the transcendentals rather than requiring it -- so the kernel and the
-    // scalar fallback agree to within an ulp rather than exactly. Measured against this platform's
-    // `std::exp`, about one value in ten differs in the last place. Two further differences are
-    // real and confined to the extremes of the range: the kernel returns an infinity from about
-    // 709.44 upwards where `std::exp` still has finite room to 709.78, and it returns zero below
-    // about -708.4 where `std::exp` continues into the subnormals. A log-mortality reaching either
-    // band describes a hazard of 10^308 or 10^-308 a year, so neither is attainable from data.
+    // THE KERNEL AND THE SCALAR FALLBACK AGREE EXACTLY. The fallback calls the same tier's scalar
+    // form (`tier::exp_S_S`, `tier::log_S_S`), which runs the same EVE algorithm, so which path a
+    // value took never shows. Neither is the C library's: neither `exp` nor `log` is correctly
+    // rounded by any mainstream library -- IEEE 754 recommends it for the transcendentals rather
+    // than requiring it -- and `std::exp` differs from EVE's in the last place about one value in
+    // ten. EVE's also differs at the extremes of the range: it returns an infinity from about 709.44
+    // upwards where `std::exp` still has finite room to 709.78, and zero below about -708.4 where
+    // `std::exp` continues into the subnormals. A log-mortality reaching either band describes a
+    // hazard of 10^308 or 10^-308 a year, so neither is attainable from data.
     //
     // A SCALAR ARGUMENT IS LEFT TO THE LOOP. `Op::Broadcast` is what puts a per-individual value
     // into a buffer, so a scalar lane arriving here means the whole result is one repeated value,

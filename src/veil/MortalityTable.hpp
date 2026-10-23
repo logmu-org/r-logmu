@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <vector>
 #include "datey.h" // isValidDatey
-#include "mortality/lookup_log_mu.hpp"
+#include "vec_ops/vec_ops.hpp" // tier::table_log_mu_SS_S -- R-free, so the core stays R-free
 
 namespace veil
 {
@@ -45,11 +45,11 @@ constexpr TableId invalidTableId = static_cast<TableId>(-1);
 
 // log mu for one individual at one instant.
 //
-// THE SEMANTICS ARE NOT VEIL'S TO CHOOSE. `log_mu()` on a `mortality_table` in R already answers
-// this question, by way of `mortality::get_interpolated_log_mu_bt_from_annual_tx_array`, and veil
-// has to give the same answer for the same table -- so it calls that same function rather than
-// working the lookup out a second time. Two properties of it matter here, because both are easy to
-// assume wrongly:
+// THE SEMANTICS ARE NOT VEIL'S TO CHOOSE. `log_mu()` on a `mortality_table` in R answers the same
+// question, and both go through `tier::table_log_mu_SS_S`, whose one definition is in
+// `mortality/lookup_log_mu.hpp`. So R and the engine agree exactly on any one machine, and the scalar
+// and bulk paths inside the engine agree with each other because each tier compiles both from the
+// same steps. Two properties of the lookup matter here, because both are easy to assume wrongly:
 //
 //   - IT INTERPOLATES, bilinearly, and on the COHORT-PERIOD lattice rather than the age-period one.
 //     So log mu varies continuously along an individual's exposure and is NOT constant within an
@@ -66,7 +66,8 @@ constexpr TableId invalidTableId = static_cast<TableId>(-1);
 // a bad value would surface: an out-of-calendar date puts the lattice index far outside the table,
 // the lookup CLAMPS to the edge, and what comes back is a perfectly plausible log mu for the wrong
 // individual. A missing birth date is the way that actually happens, R's NA integer being the most
-// negative int. The two comparisons cost nothing against the divmod, four loads and three lerps below.
+// negative int. The two comparisons cost nothing against the divmods, four loads and three
+// multiply-adds below.
 inline double logMuAt(const MortalityTable& table, int64_t birthClicks, int64_t tClicks)
 {
     if (!isValidDatey(birthClicks))
@@ -79,11 +80,11 @@ inline double logMuAt(const MortalityTable& table, int64_t birthClicks, int64_t 
         throw std::runtime_error("veil: a log mu lookup was asked for an instant outside the calendar.");
     }
 
-    return mortality::get_interpolated_log_mu_bt_from_annual_tx_array(
+    const tier::annual_log_mu_table view{
         table.logMu.data(),
         static_cast<int>(table.periodCount), static_cast<int>(table.ageCount),
-        table.t0Clicks, table.x0Clicks,
-        static_cast<int>(birthClicks), static_cast<int>(tClicks));
+        table.t0Clicks, table.x0Clicks};
+    return tier::table_log_mu_SS_S(view, static_cast<int>(birthClicks), static_cast<int>(tClicks));
 }
 
 } // namespace veil

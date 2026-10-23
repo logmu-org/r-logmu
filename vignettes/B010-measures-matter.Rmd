@@ -1,5 +1,6 @@
 ﻿---
 title: "Measures matter"
+description: "Mortality experience analysis fundamentals, part 1: experience data, actual and expected deaths as measures, and why overdispersion must be allowed for."
 output:
   rmarkdown::html_vignette:
     mathjax: default

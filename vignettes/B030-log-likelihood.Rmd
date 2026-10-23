@@ -1,5 +1,6 @@
 ﻿---
 title: "Log-likelihood"
+description: "Mortality experience analysis fundamentals, part 3: log-likelihood for mortality experience data, defined directly in terms of A and E."
 output:
   rmarkdown::html_vignette:
     mathjax: default

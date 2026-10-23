@@ -1,5 +1,6 @@
 ﻿---
 title: "A over E"
+description: "Mortality experience analysis fundamentals, part 2: why A/E works, its expected value and variance, and A/E diagnostics."
 output:
   rmarkdown::html_vignette:
     mathjax: default
