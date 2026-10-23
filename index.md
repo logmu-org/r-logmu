@@ -1,5 +1,7 @@
 # logmu
 
+Documentation: <https://r-logmu.logmu.org/>
+
 If you are setting or reviewing base mortality for defined benefit
 pension, annuity or life assurance liabilities then **logmu** is
 designed for you[^1], with state of the art tooling, including support
