@@ -33,10 +33,6 @@ struct tier_table
   const char* name;
   int (*lanes)();
 
-  double (*exp_S_S)(double);
-  double (*log_S_S)(double);
-  double (*table_log_mu_SS_S)(const annual_log_mu_table&, int, int);
-
   V_V_t neg_V_V, exp_V_V, expm1_V_V, log_V_V, log1p_V_V, m_from_q_V_V;
 
   // NO POW. It is implemented once in `vec_ops_for_R.cpp` and never
@@ -52,7 +48,6 @@ struct tier_table
 {                             \
   #NS                         \
   , &NS::simd_lanes           \
-  , &NS::exp_S_S, &NS::log_S_S, &NS::table_log_mu_SS_S \
   , &NS::neg_V_V, &NS::exp_V_V, &NS::expm1_V_V, &NS::log_V_V, &NS::log1p_V_V, &NS::m_from_q_V_V  \
   , &NS::add_VV_V, &NS::sub_VV_V, &NS::mul_VV_V, &NS::div_VV_V, &NS::max_VV_V, &NS::min_VV_V \
   , &NS::add_VS_V, &NS::sub_VS_V, &NS::mul_VS_V, &NS::div_VS_V, &NS::max_VS_V, &NS::min_VS_V \
@@ -94,10 +89,7 @@ int tier_ceiling()
 
 #endif
 
-// The best tier this CPU can run at or below `ceiling`, as a rank: 0 baseline, 1 avx2, 2 avx512.
-// ONE SET OF FEATURE CHECKS serves both selection and the test hook `forms_of_tier()`, so a tier the
-// tests reach is always one selection would have allowed.
-const tier_table& best_tier([[maybe_unused]] int ceiling)
+const tier_table& select_tier()
 {
   static const tier_table baseline_tbl = LOGMU_TIER_TABLE(baseline);
 
@@ -126,6 +118,8 @@ const tier_table& best_tier([[maybe_unused]] int ceiling)
   // tier still has to pass every feature check it had before; asking for a
   // tier the CPU lacks leaves it unselected and falls through, exactly as if
   // nothing had been asked for.
+  const int ceiling = tier_ceiling();
+
   if (ceiling >= 2
       && __builtin_cpu_supports("avx512f")
       && __builtin_cpu_supports("avx512cd")
@@ -140,52 +134,13 @@ const tier_table& best_tier([[maybe_unused]] int ceiling)
   return baseline_tbl;
 }
 
-const tier_table& select_tier()
-{
-#if IS_X86_TARGET && (defined(__GNUC__) || defined(__clang__))
-  return best_tier(tier_ceiling());
-#else
-  return best_tier(0);
-#endif
-}
-
 // Resolved exactly once (first call); the reference is cheap to re-read.
 const tier_table& T = select_tier();
-
-int rank_of_tier(const char* name)
-{
-  if (std::strcmp(name, "baseline") == 0) { return 0; }
-  if (std::strcmp(name, "avx2") == 0) { return 1; }
-  if (std::strcmp(name, "avx512") == 0) { return 2; }
-  return -1;
-}
 
 } // namespace
 
 const char* active_tier() { return T.name; }
 int active_lanes() { return static_cast<int>(T.lanes()); }
-
-double exp_S_S(double x) { return T.exp_S_S(x); }
-double log_S_S(double x) { return T.log_S_S(x); }
-double table_log_mu_SS_S(const annual_log_mu_table& table, int b_clicks, int t_clicks)
-{
-  return T.table_log_mu_SS_S(table, b_clicks, t_clicks);
-}
-
-const tier_forms* forms_of_tier(const char* name)
-{
-  const int rank = rank_of_tier(name);
-  if (rank < 0) { return nullptr; }
-
-  // Ask for the best tier at or below this one: the CPU runs the named tier exactly when that is
-  // the one it gets back.
-  const tier_table& table = best_tier(rank);
-  if (std::strcmp(table.name, name) != 0) { return nullptr; }
-
-  static tier_forms forms[3];
-  forms[rank] = {table.exp_S_S, table.log_S_S, table.table_log_mu_SS_S, table.exp_V_V, table.log_V_V};
-  return &forms[rank];
-}
 
 #define DEFINE_WRAPPER1(NAME) \
 void NAME##_V_V(vec_size n, const double* a0, double* r) { T.NAME##_V_V(n, a0, r); }

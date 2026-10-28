@@ -20,7 +20,7 @@ extern "C" SEXP _logmu_cpp_matrix_q_to_log_mu(SEXP q_matrix) {
   END_CPP11
 }
 // R.cpp
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               cpp11::doubles cpp_slow_lookup_log_mu(cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, cpp11::integers b_clicks, cpp11::integers t_clicks);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              cpp11::doubles cpp_slow_lookup_log_mu(cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, cpp11::integers b_clicks, cpp11::integers t_clicks);
 extern "C" SEXP _logmu_cpp_slow_lookup_log_mu(SEXP log_mu_matrix, SEXP x0_clicks, SEXP t0_clicks, SEXP b_clicks, SEXP t_clicks) {
   BEGIN_CPP11
     return cpp11::as_sexp(cpp_slow_lookup_log_mu(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
@@ -167,20 +167,6 @@ extern "C" SEXP _logmu_cpp_vec_clamp(SEXP x, SEXP min, SEXP max) {
     return cpp11::as_sexp(cpp_vec_clamp(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(x), cpp11::as_cpp<cpp11::decay_t<double>>(min), cpp11::as_cpp<cpp11::decay_t<double>>(max)));
   END_CPP11
 }
-// vec_ops_for_R.cpp
-cpp11::sexp cpp_tier_exp_log_forms(std::string tier_name, cpp11::doubles x);
-extern "C" SEXP _logmu_cpp_tier_exp_log_forms(SEXP tier_name, SEXP x) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(cpp_tier_exp_log_forms(cpp11::as_cpp<cpp11::decay_t<std::string>>(tier_name), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(x)));
-  END_CPP11
-}
-// vec_ops_for_R.cpp
-cpp11::sexp cpp_tier_table_log_mu(std::string tier_name, cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, cpp11::integers b_clicks, cpp11::integers t_clicks);
-extern "C" SEXP _logmu_cpp_tier_table_log_mu(SEXP tier_name, SEXP log_mu_matrix, SEXP x0_clicks, SEXP t0_clicks, SEXP b_clicks, SEXP t_clicks) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(cpp_tier_table_log_mu(cpp11::as_cpp<cpp11::decay_t<std::string>>(tier_name), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
-  END_CPP11
-}
 // veil_for_R.cpp
 cpp11::list cpp_veil_ingest_ast(cpp11::list node, cpp11::strings column_names);
 extern "C" SEXP _logmu_cpp_veil_ingest_ast(SEXP node, SEXP column_names) {
@@ -316,8 +302,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_logmu_cpp_deviance_residual",      (DL_FUNC) &_logmu_cpp_deviance_residual,       3},
     {"_logmu_cpp_matrix_q_to_log_mu",     (DL_FUNC) &_logmu_cpp_matrix_q_to_log_mu,      1},
     {"_logmu_cpp_slow_lookup_log_mu",     (DL_FUNC) &_logmu_cpp_slow_lookup_log_mu,      5},
-    {"_logmu_cpp_tier_exp_log_forms",     (DL_FUNC) &_logmu_cpp_tier_exp_log_forms,      2},
-    {"_logmu_cpp_tier_table_log_mu",      (DL_FUNC) &_logmu_cpp_tier_table_log_mu,       6},
     {"_logmu_cpp_validate_aev",           (DL_FUNC) &_logmu_cpp_validate_aev,            3},
     {"_logmu_cpp_vec_active_lanes",       (DL_FUNC) &_logmu_cpp_vec_active_lanes,        0},
     {"_logmu_cpp_vec_active_tier",        (DL_FUNC) &_logmu_cpp_vec_active_tier,         0},

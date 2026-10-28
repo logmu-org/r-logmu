@@ -92,14 +92,6 @@ cpp_vec_clamp <- function(x, min, max) {
   .Call(`_logmu_cpp_vec_clamp`, x, min, max)
 }
 
-cpp_tier_exp_log_forms <- function(tier_name, x) {
-  .Call(`_logmu_cpp_tier_exp_log_forms`, tier_name, x)
-}
-
-cpp_tier_table_log_mu <- function(tier_name, log_mu_matrix, x0_clicks, t0_clicks, b_clicks, t_clicks) {
-  .Call(`_logmu_cpp_tier_table_log_mu`, tier_name, log_mu_matrix, x0_clicks, t0_clicks, b_clicks, t_clicks)
-}
-
 cpp_veil_ingest_ast <- function(node, column_names) {
   .Call(`_logmu_cpp_veil_ingest_ast`, node, column_names)
 }

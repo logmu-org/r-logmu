@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <vector>
 #include "datey.h" // isValidDatey
-#include "vec_ops/vec_ops.hpp" // tier::table_log_mu_SS_S -- R-free, so the core stays R-free
+#include "mortality/lookup_log_mu.hpp" // the lookup's one definition -- R-free, so the core stays R-free
 
 namespace veil
 {
@@ -46,10 +46,9 @@ constexpr TableId invalidTableId = static_cast<TableId>(-1);
 // log mu for one individual at one instant.
 //
 // THE SEMANTICS ARE NOT VEIL'S TO CHOOSE. `log_mu()` on a `mortality_table` in R answers the same
-// question, and both go through `tier::table_log_mu_SS_S`, whose one definition is in
-// `mortality/lookup_log_mu.hpp`. So R and the engine agree exactly on any one machine, and the scalar
-// and bulk paths inside the engine agree with each other because each tier compiles both from the
-// same steps. Two properties of the lookup matter here, because both are easy to assume wrongly:
+// question, and both compile the one definition in `mortality/lookup_log_mu.hpp`, so they run the
+// same algorithm and agree to within the ulp or two that different compilation can introduce. Two
+// properties of the lookup matter here, because both are easy to assume wrongly:
 //
 //   - IT INTERPOLATES, bilinearly, and on the COHORT-PERIOD lattice rather than the age-period one.
 //     So log mu varies continuously along an individual's exposure and is NOT constant within an
@@ -80,11 +79,11 @@ inline double logMuAt(const MortalityTable& table, int64_t birthClicks, int64_t 
         throw std::runtime_error("veil: a log mu lookup was asked for an instant outside the calendar.");
     }
 
-    const tier::annual_log_mu_table view{
+    return mortality::interpolatedLogMu(
         table.logMu.data(),
         static_cast<int>(table.periodCount), static_cast<int>(table.ageCount),
-        table.t0Clicks, table.x0Clicks};
-    return tier::table_log_mu_SS_S(view, static_cast<int>(birthClicks), static_cast<int>(tClicks));
+        table.t0Clicks, table.x0Clicks,
+        static_cast<int>(birthClicks), static_cast<int>(tClicks));
 }
 
 } // namespace veil

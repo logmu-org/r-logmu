@@ -16,7 +16,6 @@
 #include <algorithm>   // std::min
 #include <cstddef>
 #include <cmath>     // std::pow, std::log, std::exp, std::isfinite
-#include <string>
 
 [[cpp11::register]] cpp11::strings cpp_vec_active_tier()
 {
@@ -224,57 +223,5 @@ return result;
   R_xlen_t n = x.size();
   cpp11::writable::doubles result(n);
   if (n > 0) { tier::clamp_VSS_V(n, REAL(x), min, max, REAL(result)); }
-  return result;
-}
-
-// ---- test hooks: one named tier's scalar and vector forms side by side -------------------------
-//
-// For the tests that hold each tier's scalar and vector forms to the bit. Every tier this CPU can run
-// is reached in one process, bypassing selection; NULL comes back for a tier this build or this CPU
-// lacks, so a test can skip it rather than fail.
-
-[[cpp11::register]] cpp11::sexp cpp_tier_exp_log_forms(std::string tier_name, cpp11::doubles x)
-{
-  const tier::tier_forms* forms = tier::forms_of_tier(tier_name.c_str());
-  if (forms == nullptr) { return R_NilValue; }
-
-  const R_xlen_t n = x.size();
-  cpp11::writable::doubles exp_scalar(n), exp_vector(n), log_scalar(n), log_vector(n);
-  for (R_xlen_t i = 0; i < n; ++i)
-  {
-    exp_scalar[i] = forms->exp_S_S(x[i]);
-    log_scalar[i] = forms->log_S_S(x[i]);
-  }
-  if (n > 0)
-  {
-    forms->exp_V_V(n, REAL(x), REAL(exp_vector));
-    forms->log_V_V(n, REAL(x), REAL(log_vector));
-  }
-
-  using namespace cpp11::literals;
-  return cpp11::writable::list({
-    "exp_scalar"_nm = exp_scalar, "exp_vector"_nm = exp_vector,
-    "log_scalar"_nm = log_scalar, "log_vector"_nm = log_vector});
-}
-
-[[cpp11::register]] cpp11::sexp cpp_tier_table_log_mu(
-  std::string tier_name,
-  cpp11::doubles log_mu_matrix,
-  int x0_clicks, int t0_clicks,
-  cpp11::integers b_clicks, cpp11::integers t_clicks)
-{
-  const tier::tier_forms* forms = tier::forms_of_tier(tier_name.c_str());
-  if (forms == nullptr) { return R_NilValue; }
-
-  auto dims = cpp11::as_cpp<cpp11::integers>(log_mu_matrix.attr("dim"));
-  const tier::annual_log_mu_table table{REAL(log_mu_matrix), dims[1], dims[0], t0_clicks, x0_clicks};
-
-  const R_xlen_t n = b_clicks.size();
-  if (t_clicks.size() != n) { cpp11::stop("`b_clicks` and `t_clicks` must be the same length."); }
-  cpp11::writable::doubles result(n);
-  for (R_xlen_t i = 0; i < n; ++i)
-  {
-    result[i] = forms->table_log_mu_SS_S(table, b_clicks[i], t_clicks[i]);
-  }
   return result;
 }

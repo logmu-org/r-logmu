@@ -9,6 +9,7 @@
 #include <cmath>
 #include "vec_ops/vec_ops.hpp"
 #include "mortality/convert_m_to_mu.hpp"
+#include "mortality/lookup_log_mu.hpp"
 
 [[cpp11::register]]
 bool cpp_all_finite(cpp11::doubles x)
@@ -63,8 +64,12 @@ cpp11::doubles cpp_matrix_q_to_log_mu(cpp11::doubles q_matrix)
 // and many births against one time reads a population at an instant --
 // `simulate()` does the latter, click by click.
 //
-// THROUGH THE TIER, so this reads exactly what the veil engine reads for the same table on the same
-// machine: there is one definition, compiled once per tier, in `mortality/lookup_log_mu.hpp`.
+// THE ONE DEFINITION in `mortality/lookup_log_mu.hpp`, which the veil engine compiles too.
+//
+// THE TABLE'S DIMENSIONS ARE NOT `n_x` AND `n_t`. They were until 2026-10-28, and the inner
+// `n_t` shadowed the length of `t_clicks`, so the recycling below cycled through as many instants
+// as the table has periods: the wrong instants when there were more of them, and a read past the
+// end of `t_clicks` when there were fewer, as in `simulate()`'s one instant against many births.
 cpp11::doubles cpp_slow_lookup_log_mu(
   cpp11::doubles log_mu_matrix,
   int x0_clicks, int t0_clicks, // xt order when interfacing with R
@@ -80,16 +85,18 @@ cpp11::doubles cpp_slow_lookup_log_mu(
   {
     auto matrix_dims = cpp11::as_cpp<cpp11::integers>(log_mu_matrix.attr("dim"));
 
-    int n_x = matrix_dims[0];
-    int n_t = matrix_dims[1];
+    const int age_count = matrix_dims[0];
+    const int period_count = matrix_dims[1];
 
-    // tx order when inside C++
-    const tier::annual_log_mu_table table{REAL(log_mu_matrix), n_t, n_x, t0_clicks, x0_clicks};
+    const double* p_log_mu = REAL(log_mu_matrix);
     double* p_result =  REAL(result);
 
     for (R_xlen_t i = 0; i < n; ++i)
     {
-      p_result[i] = tier::table_log_mu_SS_S(table, b_clicks[i % n_b], t_clicks[i % n_t]);
+      p_result[i] = mortality::interpolatedLogMu(
+        p_log_mu, period_count, age_count, // tx order when inside C++
+        t0_clicks, x0_clicks,
+        b_clicks[i % n_b], t_clicks[i % n_t]);
     }
   }
 

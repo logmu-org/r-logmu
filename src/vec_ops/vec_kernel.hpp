@@ -13,7 +13,6 @@
 #include <eve/wide.hpp>
 #include <eve/module/core.hpp>
 #include <eve/module/math.hpp>
-#include "mortality/lookup_log_mu.hpp" // the table lookup's one definition
 
 namespace tier
 {
@@ -157,15 +156,6 @@ void NAME##_SV_V(vec_size n,       double  arg0, const double* arg1, double* res
 
 #define DEFINE_TIER()                                          \
 int simd_lanes(){ return static_cast<int>(eve::wide<double>::size()); } \
-\
-double exp_S_S(double x){ return eve::exp(x); }                \
-double log_S_S(double x){ return eve::log(x); }                \
-double table_log_mu_SS_S(const annual_log_mu_table& table, int b_clicks, int t_clicks) \
-{                                                              \
-  return ::mortality::interpolatedLogMu(                       \
-    table.log_mu, table.period_count, table.age_count,         \
-    table.t0_clicks, table.x0_clicks, b_clicks, t_clicks);     \
-}                                                              \
 \
 DEFINE_WRAPPER1x1(neg,minus)                                   \
 DEFINE_WRAPPER1(exp)                                           \

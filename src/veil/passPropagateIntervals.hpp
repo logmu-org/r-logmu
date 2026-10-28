@@ -13,7 +13,7 @@
 #include <variant>
 #include <vector>
 #include "datey.h" // ClicksPerYear, ValidDateStartClicks, ValidDateEndClicks
-#include "vec_ops/vec_ops.hpp" // tier::exp_S_S, tier::log_S_S
+#include <eve/module/math.hpp> // eve::exp, eve::log -- the functions the engine runs
 #include "veil/ColumnScan.hpp" // TypeWithConstraints
 #include "veil/Node.hpp"
 #include "veil/ObjStore.hpp"
@@ -362,10 +362,10 @@ inline std::vector<Interval> passPropagateIntervals(
                     break;
                 }
 
-                // `exp` and `log` are bounded with the functions the engine will run, the tier's own,
-                // so an endpoint here is exactly a value the run can produce.
+                // `exp` and `log` are bounded with EVE's, the source the engine runs, so an endpoint
+                // here is a value the run can produce to within the ulp or two between paths.
                 case Op::Exp:
-                    result = detail::increasing(argument(0), [](double v) { return tier::exp_S_S(v); });
+                    result = detail::increasing(argument(0), [](double v) { return eve::exp(v); });
                     break;
                 case Op::Sqrt:
                 {
@@ -376,7 +376,7 @@ inline std::vector<Interval> passPropagateIntervals(
                 case Op::Log:
                 {
                     const Interval x = argument(0);
-                    if (x.lo > 0.0) { result = detail::increasing(x, [](double v) { return tier::log_S_S(v); }); }
+                    if (x.lo > 0.0) { result = detail::increasing(x, [](double v) { return eve::log(v); }); }
                     break;
                 }
                 case Op::Log10:

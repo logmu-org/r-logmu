@@ -8,27 +8,25 @@
 
 // THE DEFINITION OF A TABLE'S LOG MU AT ONE BIRTH AND ONE INSTANT.
 //
-// INCLUDED ONLY BY THE TIER KERNELS (`vec_ops/vec_kernel.hpp`), and reached from everywhere else
-// through `tier::table_log_mu_SS_S`. R's `log_mu()` and the veil engine therefore run the same
-// compiled arithmetic on any one machine, and the bulk path, when it comes, is written from the
-// same steps. Including it anywhere else would give that caller a second, differently compiled
-// copy of the arithmetic, and the two would no longer be guaranteed to agree.
+// ONE SOURCE FOR EVERY PATH. R's `log_mu()`, the veil engine's per-slot lookup and, in time, its bulk
+// lookup all compile this header, so they run the same algorithm. They are compiled in different
+// translation units, some with FMA and some without, so they may differ by an ulp or two, which is
+// the agreed tolerance between paths. A second, hand-written copy of the lookup anywhere else would
+// break the one-source rule even if it agreed today.
 //
-// AN ANONYMOUS NAMESPACE, DELIBERATELY. Each tier's translation unit is compiled with its own ISA
-// flags, so an ordinary `inline` function here would be one symbol with three different bodies, and
-// the linker keeps whichever it sees first. A baseline CPU could then run the AVX-512 body. Internal
-// linkage gives each tier its own copy.
+// AN ANONYMOUS NAMESPACE, DELIBERATELY. The bulk lookup will compile this into each SIMD tier's
+// translation unit with that tier's ISA flags, so an ordinary `inline` function here would be one
+// symbol with several different bodies, and the linker keeps whichever it sees first. A baseline CPU
+// could then run the AVX-512 body. Internal linkage gives each translation unit its own copy.
 //
 // COHORT FIRST, THEN PERIOD, EACH STEP AN `eve::fma`. The lattice is cohort-period, so a person's
 // whole exposure lies between two cohort columns fixed for life: blending those first leaves one
 // interpolation in period per instant, which is the shape the bulk path needs. `eve::fma` is a fused
-// multiply-add on a tier that has the instruction and a separate multiply and add on one that does
-// not. Either way the scalar and vector forms of a tier do the same thing, which is the property that
-// matters; the tiers may differ from each other by an ulp, which does not. `std::lerp` is not used:
-// its guarantees at t = 1 and on monotonicity buy nothing for a weight in [0, 1), its branches get in
-// the way of lanes, and the standard fixes only its properties, so libraries may round it differently.
-// `std::fma` is not used either: compiled without `-mfma`, Rtools turns it into a call to a library
-// `fma` that is not correctly rounded.
+// multiply-add where the target has the instruction and a separate multiply and add where it does
+// not. `std::lerp` is not used: its guarantees at t = 1 and on monotonicity buy nothing for a weight
+// in [0, 1), its branches get in the way of lanes, and the standard fixes only its properties, so
+// libraries may round it differently. `std::fma` is not used either: compiled without `-mfma`, Rtools
+// turns it into a call to a library `fma` that is not correctly rounded.
 //
 // AN INDEX PAST THE END IS CLAMPED to the edge of the table, age and period independently. An
 // individual older than the table's last age is read at that last age rather than refused, which is
