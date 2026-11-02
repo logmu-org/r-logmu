@@ -26,6 +26,13 @@ extern "C" SEXP _logmu_cpp_slow_lookup_log_mu(SEXP log_mu_matrix, SEXP x0_clicks
     return cpp11::as_sexp(cpp_slow_lookup_log_mu(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
   END_CPP11
 }
+// R.cpp
+                                                                                                                                                                                                                                                                       cpp11::doubles cpp_table_log_mu_series(cpp11::doubles log_mu_matrix, int x0_clicks, int t0_clicks, int b_clicks, cpp11::integers t_clicks);
+extern "C" SEXP _logmu_cpp_table_log_mu_series(SEXP log_mu_matrix, SEXP x0_clicks, SEXP t0_clicks, SEXP b_clicks, SEXP t_clicks) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(cpp_table_log_mu_series(cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(log_mu_matrix), cpp11::as_cpp<cpp11::decay_t<int>>(x0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(t0_clicks), cpp11::as_cpp<cpp11::decay_t<int>>(b_clicks), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(t_clicks)));
+  END_CPP11
+}
 // aev.cpp
 cpp11::doubles cpp_deviance_residual(cpp11::doubles A, cpp11::doubles E, cpp11::doubles V);
 extern "C" SEXP _logmu_cpp_deviance_residual(SEXP A, SEXP E, SEXP V) {
@@ -273,6 +280,13 @@ extern "C" SEXP _logmu_cpp_veil_fit_run(SEXP mortality, SEXP terms, SEXP weight,
   END_CPP11
 }
 // veil_for_R.cpp
+cpp11::list cpp_veil_fit_runs(cpp11::list fits, cpp11::list columns, int time_scale, int threads);
+extern "C" SEXP _logmu_cpp_veil_fit_runs(SEXP fits, SEXP columns, SEXP time_scale, SEXP threads) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(cpp_veil_fit_runs(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(fits), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(columns), cpp11::as_cpp<cpp11::decay_t<int>>(time_scale), cpp11::as_cpp<cpp11::decay_t<int>>(threads)));
+  END_CPP11
+}
+// veil_for_R.cpp
 cpp11::list cpp_veil_run(cpp11::list specs, cpp11::list columns, int time_scale, bool keep_contributions, int threads);
 extern "C" SEXP _logmu_cpp_veil_run(SEXP specs, SEXP columns, SEXP time_scale, SEXP keep_contributions, SEXP threads) {
   BEGIN_CPP11
@@ -302,6 +316,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_logmu_cpp_deviance_residual",      (DL_FUNC) &_logmu_cpp_deviance_residual,       3},
     {"_logmu_cpp_matrix_q_to_log_mu",     (DL_FUNC) &_logmu_cpp_matrix_q_to_log_mu,      1},
     {"_logmu_cpp_slow_lookup_log_mu",     (DL_FUNC) &_logmu_cpp_slow_lookup_log_mu,      5},
+    {"_logmu_cpp_table_log_mu_series",    (DL_FUNC) &_logmu_cpp_table_log_mu_series,     5},
     {"_logmu_cpp_validate_aev",           (DL_FUNC) &_logmu_cpp_validate_aev,            3},
     {"_logmu_cpp_vec_active_lanes",       (DL_FUNC) &_logmu_cpp_vec_active_lanes,        0},
     {"_logmu_cpp_vec_active_tier",        (DL_FUNC) &_logmu_cpp_vec_active_tier,         0},
@@ -326,6 +341,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_logmu_cpp_veil_eval_multi",        (DL_FUNC) &_logmu_cpp_veil_eval_multi,         2},
     {"_logmu_cpp_veil_fit",               (DL_FUNC) &_logmu_cpp_veil_fit,               11},
     {"_logmu_cpp_veil_fit_run",           (DL_FUNC) &_logmu_cpp_veil_fit_run,           17},
+    {"_logmu_cpp_veil_fit_runs",          (DL_FUNC) &_logmu_cpp_veil_fit_runs,           4},
     {"_logmu_cpp_veil_fold",              (DL_FUNC) &_logmu_cpp_veil_fold,               2},
     {"_logmu_cpp_veil_ingest_ast",        (DL_FUNC) &_logmu_cpp_veil_ingest_ast,         2},
     {"_logmu_cpp_veil_integrate",         (DL_FUNC) &_logmu_cpp_veil_integrate,          4},
