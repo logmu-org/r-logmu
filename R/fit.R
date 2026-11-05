@@ -107,6 +107,11 @@ default_max_halvings <- 30L
 #' the weight and the test mortality), `iterations`, `evaluations`,
 #' `predicted_gain` and `model`.
 #'
+#' A fit that does not converge raises an error of class `fit_failure`, whose
+#' `status` field is the engine's word for what happened (`not_identifiable`,
+#' `not_finite`, `did_not_converge` or `step_collapsed`). Inside [batch()] the
+#' error is held as the element's result rather than raised.
+#'
 #' `is_fit()` returns a scalar `logical`.
 #'
 #' `coef()` returns the fitted coefficients as a named numeric vector, and
@@ -171,69 +176,164 @@ fit <- function(exp_data,
   relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
   test <- fit_test_mortality(substitute(test_mortality), missing(test_mortality), Z, caller)
-  test_ast <- test$ast
 
-  if (!is.null(include)) {
-    if (is_includes(include)) {
-      stop("`include` takes a single `include`. A fit is one model over one population.",
-           call. = FALSE)
-    }
-    ensure_is_include(include)
-  }
+  plan <- fit_plan(model, include, substitute(include), weight_ast, relevance_ast,
+                   distance_ast, test, substitute(test_mortality), Z, resolved,
+                   fit_method(start, L_tolerance, armijo, max_iterations, max_halvings))
 
-  columns <- exp_data_columns(exp_data)
-  population <- fit_population(test_ast, weight_ast, include, columns,
-                               resolved$time_scale_clicks, threads)
-  scale <- resolve_Z(Z, population)
-  labels <- fit_call_labels(substitute(test_mortality), test$name,
-                            substitute(include), include, weight_ast)
-  arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
-
-  run <- fit_engine_run(model, include, weight_ast, relevance_ast, distance_ast,
-                        columns, resolved, scale, start,
-                        L_tolerance, armijo, max_iterations, max_halvings, threads)
-
-  if (!identical(run$status, "converged")) {
-    stop(fit_failure_message(run, model, L_tolerance), call. = FALSE)
-  }
-
-  new_fit(run, model, scale, resolved$overdispersion, population, arguments, labels)
+  run_plan_alone(plan, exp_data, resolved$time_scale_clicks, threads)
 }
 
-# One model through the engine, and NO INTERPRETATION OF THE ANSWER. The status
-# comes back as the engine set it, because the two callers do different things
-# with a failure: `fit()` raises, and `compare_models()` records it and ranks the
-# rest. Everything above this line is shared by every candidate in a comparison
-# and so is resolved once, before the loop.
-fit_engine_run <- function(model, include, weight_ast, relevance_ast, distance_ast,
-                           columns, resolved, z_value, start,
-                           L_tolerance, armijo, max_iterations, max_halvings, threads) {
+# THE SEAM `batch()` RUNS THROUGH, as `aev_plan()` is for an A/E, with one step
+# more. An A/E plan is its specifications and a finaliser; a fitting plan adds
+# `fits`, which turns the population pass's results into the fits to be run.
+# `run_plans()` then runs every plan's fits in ONE engine call, so that they
+# share each walk of the data, and hands each finaliser its own runs back.
+#
+# `fit()` above is the degenerate batch of one, so a batched fit and a lone one
+# cannot drift apart.
+#
+# A FAILURE IS RAISED AS A `fit_failure` CONDITION. A lone `fit()` lets it
+# propagate, which is the ordinary error it always was; `batch()` catches that
+# class and no other, so the element holds the diagnosis and the rest of the
+# batch survives, while an interrupt or a malformed argument still stops it.
+fit_plan <- function(model, include, include_expr, weight_ast, relevance_ast,
+                     distance_ast, test, test_expr, Z, resolved, method) {
+
+  ensure_single_include(include, "A fit is one model over one population.")
+
+  labels <- fit_call_labels(test_expr, test$name, include_expr, include, weight_ast)
+  arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
+
+  list(
+    specs = fit_population_specs(test$ast, weight_ast, include),
+    fits = function(results) {
+      scale <- resolve_Z(Z, fit_population_read(results))
+      list(fit_engine_spec(model, include, weight_ast, relevance_ast, distance_ast,
+                           resolved, scale, method))
+    },
+    finalise = function(results, runs) {
+      population <- fit_population_read(results)
+      scale <- resolve_Z(Z, population)
+      run <- runs[[1L]]
+
+      if (!identical(run$status, "converged")) {
+        stop(fit_failure(run, model, method$L_tolerance))
+      }
+
+      new_fit(run, model, scale, resolved$overdispersion, population, arguments, labels)
+    }
+  )
+}
+
+# The numerical method's arguments, carried together because nothing but the
+# engine call reads them.
+fit_method <- function(start, L_tolerance, armijo, max_iterations, max_halvings) {
+  list(start = start, L_tolerance = L_tolerance, armijo = armijo,
+       max_iterations = max_iterations, max_halvings = max_halvings)
+}
+
+# A plan run on its own, by the same runner `batch()` uses for several.
+run_plan_alone <- function(plan, exp_data, time_scale_clicks, threads) {
+  run_plans(list(plan), exp_data_columns(exp_data), time_scale_clicks,
+            as.integer(threads))[[1L]]
+}
+
+# Runs plans over one dataset at one time scale and returns each one's result.
+#
+# TWO ENGINE CALLS, HOWEVER MANY PLANS. The first crosses the data once for
+# every plan's specifications. The second runs every fit any plan asked for --
+# a fit's one model, a comparison's every candidate -- in a single
+# `cpp_veil_fit_runs()`, where they share each walk of the data and so keep the
+# whole thread pool busy on a dataset too small for one fit to fill it. Nothing
+# is fitted until every plan has said what it wants fitted, so an unusable Z in
+# any of them fails the call before the expensive part starts.
+#
+# Results come back in the order the specifications went in, so each plan takes
+# as many as it asked for. `hold_failures` is `batch()`'s: a `fit_failure` from
+# a finaliser becomes that plan's result rather than ending the run.
+run_plans <- function(plans, columns, time_scale_clicks, threads, hold_failures = FALSE) {
+  specs <- lapply(plans, function(plan) plan$specs)
+  run <- cpp_veil_run(unlist(specs, recursive = FALSE), columns, time_scale_clicks,
+                      FALSE, threads)
+  results <- split_by_lengths(run$results, lengths(specs))
+
+  fits <- lapply(seq_along(plans), function(at) {
+    if (is.null(plans[[at]]$fits)) list() else plans[[at]]$fits(results[[at]])
+  })
+  wanted <- unlist(fits, recursive = FALSE)
+  runs <- if (length(wanted) == 0L) {
+    list()
+  } else {
+    cpp_veil_fit_runs(wanted, columns, time_scale_clicks, threads)
+  }
+  runs <- split_by_lengths(runs, lengths(fits))
+
+  lapply(seq_along(plans), function(at) {
+    finish <- function() plans[[at]]$finalise(results[[at]], runs[[at]])
+    if (hold_failures) tryCatch(finish(), fit_failure = function(failure) failure) else finish()
+  })
+}
+
+# `x` cut into consecutive pieces of the given lengths.
+split_by_lengths <- function(x, sizes) {
+  ends <- cumsum(sizes)
+  lapply(seq_along(sizes), function(at) x[seq_len(sizes[[at]]) + ends[[at]] - sizes[[at]]])
+}
+
+# `include` is a single `include` for anything that fits, since every candidate
+# is fitted over one population. `why` finishes the sentence for the caller.
+ensure_single_include <- function(include, why) {
+  if (is.null(include)) return(invisible(NULL))
+  if (is_includes(include)) {
+    stop("`include` takes a single `include`. ", why, call. = FALSE)
+  }
+  ensure_is_include(include)
+}
+
+# The error a fit raises when it does not converge, as a condition of its own
+# class so that `batch()` can hold it on the element rather than lose the batch.
+# `status` is the engine's own word for what happened.
+fit_failure <- function(run, model, L_tolerance) {
+  structure(
+    class = c("fit_failure", "error", "condition"),
+    list(message = fit_failure_message(run, model, L_tolerance),
+         call = NULL,
+         status = run$status)
+  )
+}
+
+# One model as the engine wants it, for `cpp_veil_fit_runs()`. The run comes
+# back with NO INTERPRETATION OF THE ANSWER: the status is as the engine set it,
+# because the two callers do different things with a failure -- `fit()` raises,
+# and `compare_models()` records it and ranks the rest. The dataset, the time
+# scale and the thread count are the run's, not the model's, so they are not
+# here.
+fit_engine_spec <- function(model, include, weight_ast, relevance_ast, distance_ast,
+                            resolved, z_value, method) {
 
   terms <- model_term_asts(model)
 
-  cpp_veil_fit_run(
-    model$ref_mortality,
-    terms,
-    weight_ast,
-    relevance_ast,
-    distance_ast,
-    columns,
-    resolved$time_scale_clicks,
-    include,
-    fit_start(start, length(terms)),
-    as.integer(max_iterations),
-    as.double(L_tolerance),
-    as.double(armijo),
-    as.double(max_halvings),
-    resolved$overdispersion,
-    z_value,
+  list(
+    mortality = model$ref_mortality,
+    terms = terms,
+    weight = weight_ast,
+    val_relevance = relevance_ast,
+    val_distance = distance_ast,
+    include = include,
+    start = fit_start(method$start, length(terms)),
+    max_iterations = as.integer(method$max_iterations),
+    tolerance = as.double(method$L_tolerance),
+    armijo = as.double(method$armijo),
+    max_halvings = as.double(method$max_halvings),
+    overdispersion = resolved$overdispersion,
+    z_scale = z_value,
 
     # THE ASSERTION TRAVELS, THE VERIFICATION HAPPENS IN THE ENGINE. R can prove a `disjoint()` term
     # does not vary with time and nothing more -- a column's type is unknown until the data arrives.
     # The engine walks the data once before compiling and refuses a claim that does not hold, which
     # is what earns the right to leave the off-diagonal integrals out of the block entirely.
-    is_disjoint(model$covariates),
-    as.integer(threads)
+    disjoint = is_disjoint(model$covariates)
   )
 }
 
@@ -319,9 +419,23 @@ fit_test_mortality <- function(expr, absent, Z, caller) {
 # Omega of the run, so only here is `V` equal to `Ew^2`, which is what Z needs.
 # Anything wanting the user's Omega scales it afterwards -- see the header, where
 # the confidence interval does exactly that.
+#
+# SPLIT INTO ITS SPECIFICATIONS AND ITS READING, so that in a batch the two
+# blocks join the crossing every other analysis shares; `fit_population()` is
+# the two run together.
 fit_population <- function(test_ast, weight_ast, include, columns,
                            time_scale_clicks, threads) {
+  run <- cpp_veil_run(
+    fit_population_specs(test_ast, weight_ast, include),
+    columns,
+    time_scale_clicks,
+    FALSE,
+    as.integer(threads)
+  )
+  fit_population_read(run$results)
+}
 
+fit_population_specs <- function(test_ast, weight_ast, include) {
   ensure_mortality_leaves(test_ast)
 
   block <- function(mortality, weight) {
@@ -329,16 +443,12 @@ fit_population <- function(test_ast, weight_ast, include, columns,
          val_distance = NULL, include = include, overdispersion = 1)
   }
 
-  run <- cpp_veil_run(
-    list(block(test_ast, weight_ast), block(it_lit(0), NULL)),
-    columns,
-    time_scale_clicks,
-    FALSE,
-    as.integer(threads)
-  )
+  list(block(test_ast, weight_ast), block(it_lit(0), NULL))
+}
 
-  on_test <- run$results[[1L]]
-  span <- run$results[[2L]]
+fit_population_read <- function(results) {
+  on_test <- results[[1L]]
+  span <- results[[2L]]
 
   list(Aw = on_test$A, Ew = on_test$E, Ew2 = on_test$V,
        deaths = span$A, exposure = span$E)

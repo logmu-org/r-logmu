@@ -99,6 +99,11 @@ that \code{\link[=diagnose]{diagnose()}} can reuse them), \code{labels} (what wa
 the weight and the test mortality), \code{iterations}, \code{evaluations},
 \code{predicted_gain} and \code{model}.
 
+A fit that does not converge raises an error of class \code{fit_failure}, whose
+\code{status} field is the engine's word for what happened (\code{not_identifiable},
+\code{not_finite}, \code{did_not_converge} or \code{step_collapsed}). Inside \code{\link[=batch]{batch()}} the
+error is held as the element's result rather than raised.
+
 \code{is_fit()} returns a scalar \code{logical}.
 
 \code{coef()} returns the fitted coefficients as a named numeric vector, and

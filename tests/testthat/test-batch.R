@@ -224,6 +224,31 @@ test_that("an analysis may not refer to another in the same batch", {
   )
 })
 
+test_that("an element may be named after a column it reads", {
+  # `.i$pension` reads a field, not a variable called `pension`. `all.vars()`
+  # reports the field too, which once refused this as a use of a sibling's
+  # result.
+  b <- batch(
+    .exp_data = data, .overdispersion = 1,
+    pension = aev(mortality = light, weight = .i$pension),
+    male    = aev(mortality = light, include = include(.i$male))
+  )
+
+  expect_identical(b$pension,
+                   aev(data, mortality = light, weight = .i$pension, overdispersion = 1))
+  expect_identical(b$male,
+                   aev(data, mortality = light, include = include(.i$male), overdispersion = 1))
+})
+
+test_that("a namespace-qualified call is not a mention of a sibling", {
+  b <- batch(
+    .exp_data = data, .overdispersion = 1,
+    logmu = logmu::aev(mortality = light),
+    aev   = aev(mortality = heavy)
+  )
+  expect_identical(b$logmu, aev(data, mortality = light, overdispersion = 1))
+})
+
 test_that("an analysis with no mortality is refused by name", {
   expect_error(
     batch(.exp_data = data, .overdispersion = 1, missing_one = aev(include = include(.i$male))),

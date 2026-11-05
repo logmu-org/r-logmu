@@ -6,15 +6,21 @@
 
 #pragma once
 
-// THE DEFINITION OF A TABLE'S LOG MU AT ONE BIRTH AND ONE INSTANT.
+// THE DEFINITION OF A TABLE'S LOG MU AT ONE BIRTH AND ONE INSTANT, AND ALONG ONE LIFELINE.
 //
-// ONE SOURCE FOR EVERY PATH. R's `log_mu()`, the veil engine's per-slot lookup and, in time, its bulk
-// lookup all compile this header, so they run the same algorithm. They are compiled in different
-// translation units, some with FMA and some without, so they may differ by an ulp or two, which is
-// the agreed tolerance between paths. A second, hand-written copy of the lookup anywhere else would
-// break the one-source rule even if it agreed today.
+// ONE SOURCE FOR EVERY PATH. R's `log_mu()` and the veil engine's bulk lookup both compile this
+// header, so they run the same algorithm. They are compiled in different translation units, some
+// with FMA and some without, so they may differ by an ulp or two, which is the agreed tolerance
+// between paths. A second, hand-written copy of the lookup anywhere else would break the one-source
+// rule even if it agreed today.
 //
-// AN ANONYMOUS NAMESPACE, DELIBERATELY. The bulk lookup will compile this into each SIMD tier's
+// THE TWO FORMS ARE BUILT FROM THE SAME TWO PIECES, a cohort blend at one period and an
+// interpolation in period between two blends. `interpolatedLogMu` does both for one instant;
+// `interpolatedLogMuSeries` blends once per period an individual spans and then does one
+// interpolation per instant. Compiled with the same flags, the two give bit-identical answers,
+// because the series form only keeps blends the single form would recompute.
+//
+// AN ANONYMOUS NAMESPACE, DELIBERATELY. The bulk lookup is compiled into each SIMD tier's
 // translation unit with that tier's ISA flags, so an ordinary `inline` function here would be one
 // symbol with several different bodies, and the linker keeps whichever it sees first. A baseline CPU
 // could then run the AVX-512 body. Internal linkage gives each translation unit its own copy.
@@ -33,6 +39,7 @@
 // consistent with `end_age` being a check the caller makes rather than an input here.
 
 #include <algorithm>
+#include <cstddef>
 #include <eve/module/core.hpp>
 #include "datey.h"   // ClicksPerYear
 
@@ -72,6 +79,40 @@ inline double valueFromTxArray(
 	return logMu[periodIndex * ageCount + ageIndex];
 }
 
+// Where a birth sits between the two cohort columns either side of it. `cohort` is the older of the
+// two, `cohort + 1` the younger, and `weight` runs from 0 at the older to 1 at the younger.
+struct CohortPosition
+{
+	int cohort;
+	double weight;
+};
+
+inline CohortPosition cohortPositionOf(int t0Clicks, int x0Clicks, int birthClicks)
+{
+	const WholeYearsAndClicks birth = splitClicks(birthClicks - (t0Clicks - x0Clicks));
+	return {birth.years, birth.clicks / static_cast<double>(ClicksPerYear)};
+}
+
+// The two cohort columns blended at one whole period. Age is period minus cohort.
+inline double cohortBlendAt(
+	const double* logMu, int periodCount, int ageCount,
+	const CohortPosition& position, int period)
+{
+	const double older = valueFromTxArray(logMu, periodCount, ageCount, period, period - position.cohort);
+	const double younger = valueFromTxArray(logMu, periodCount, ageCount, period, period - position.cohort - 1);
+	return eve::fma(position.weight, younger - older, older);
+}
+
+inline double periodWeightOf(const WholeYearsAndClicks& instant)
+{
+	return instant.clicks / static_cast<double>(ClicksPerYear);
+}
+
+inline double periodBlend(double now, double next, double periodWeight)
+{
+	return eve::fma(periodWeight, next - now, now);
+}
+
 // Parameters are `int`s because R matrix dimensions are `int`s and a `datey` is an `int` under the
 // covers. `logMu` is in `tx` order: periods first, then ages.
 inline double interpolatedLogMu(
@@ -79,27 +120,66 @@ inline double interpolatedLogMu(
 	int t0Clicks, int x0Clicks,
 	int birthClicks, int tClicks)
 {
-	const int b0Clicks = t0Clicks - x0Clicks;
-
-	// Cohort `cohort` is the older of the two either side of this birth, `cohort + 1` the younger.
-	const WholeYearsAndClicks birth = splitClicks(birthClicks - b0Clicks);
-	const int cohort = birth.years;
-	const double cohortWeight = birth.clicks / static_cast<double>(ClicksPerYear);
-
+	const CohortPosition position = cohortPositionOf(t0Clicks, x0Clicks, birthClicks);
 	const WholeYearsAndClicks instant = splitClicks(tClicks - t0Clicks);
-	const int period = instant.years;
-	const double periodWeight = instant.clicks / static_cast<double>(ClicksPerYear);
 
-	// Age is period minus cohort.
-	const double olderNow = valueFromTxArray(logMu, periodCount, ageCount, period, period - cohort);
-	const double youngerNow = valueFromTxArray(logMu, periodCount, ageCount, period, period - cohort - 1);
-	const double olderNext = valueFromTxArray(logMu, periodCount, ageCount, period + 1, period + 1 - cohort);
-	const double youngerNext = valueFromTxArray(logMu, periodCount, ageCount, period + 1, period - cohort);
+	return periodBlend(
+		cohortBlendAt(logMu, periodCount, ageCount, position, instant.years),
+		cohortBlendAt(logMu, periodCount, ageCount, position, instant.years + 1),
+		periodWeightOf(instant));
+}
 
-	const double now = eve::fma(cohortWeight, youngerNow - olderNow, olderNow);
-	const double next = eve::fma(cohortWeight, youngerNext - olderNext, olderNext);
+// How many cohort blends the series form keeps at once. A five-year investigation spans six or seven
+// periods; a longer one, or instants out of order, refills rather than failing.
+constexpr int BlendsHeld = 32;
 
-	return eve::fma(periodWeight, next - now, now);
+// log mu for one birth at `count` instants, written to `result`.
+//
+// THE COHORT BLEND IS DONE ONCE PER PERIOD rather than twice per instant, which is the whole point:
+// a birth fixes both cohort columns for life, so along one lifeline each instant needs only its
+// period's two blends and one interpolation between them. The blends are kept for a run of periods
+// starting at the first instant's, sized from the last instant's on the assumption that instants
+// increase, which every caller's do.
+//
+// THE ASSUMPTION AFFECTS SPEED, NEVER THE ANSWER. An instant whose two periods are not both held
+// refills from that instant's period, so instants out of order, or a lifeline longer than
+// `BlendsHeld` periods, come out exactly as they would one at a time.
+inline void interpolatedLogMuSeries(
+	const double* logMu, int periodCount, int ageCount,
+	int t0Clicks, int x0Clicks,
+	int birthClicks, std::ptrdiff_t count, const int* tClicks, double* result)
+{
+	if (count <= 0)
+	{
+		return;
+	}
+
+	const CohortPosition position = cohortPositionOf(t0Clicks, x0Clicks, birthClicks);
+	const int lastPeriod = splitClicks(tClicks[count - 1] - t0Clicks).years;
+
+	double blends[BlendsHeld];
+	int heldFrom = 0;
+	int heldCount = 0;
+
+	for (std::ptrdiff_t index = 0; index < count; ++index)
+	{
+		const WholeYearsAndClicks instant = splitClicks(tClicks[index] - t0Clicks);
+		const int period = instant.years;
+
+		// Both `period` and `period + 1` must be held.
+		if (period < heldFrom || period + 1 >= heldFrom + heldCount)
+		{
+			heldFrom = period;
+			heldCount = std::clamp(lastPeriod - period + 2, 2, BlendsHeld);
+			for (int offset = 0; offset < heldCount; ++offset)
+			{
+				blends[offset] = cohortBlendAt(logMu, periodCount, ageCount, position, heldFrom + offset);
+			}
+		}
+
+		const int offset = period - heldFrom;
+		result[index] = periodBlend(blends[offset], blends[offset + 1], periodWeightOf(instant));
+	}
 }
 
 } // namespace

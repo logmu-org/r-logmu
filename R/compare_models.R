@@ -30,10 +30,11 @@
 # of fifty must not destroy the other forty-nine. So the row carries the status
 # and `NA`, the diagnosis is kept in `failures`, and the rest still rank.
 #
-# ONE ENGINE RUN PER CANDIDATE, deliberately for now. Fitting the candidates
-# together in a single crossing needs a multi-block fit loop in the engine, with
-# per-block convergence; the threading pool already parallelises within each fit,
-# and sharing Z and the argument resolution is what this slice is for.
+# THE CANDIDATES ARE FITTED TOGETHER. The engine's `runFits` walks the data
+# once per round for every candidate still iterating, each converging on its
+# own, so a comparison keeps the whole thread pool busy where one fit on a small
+# dataset could not -- and each candidate is still bit-identical to the same
+# model fitted alone.
 
 comparison_class <- "model_comparison"
 
@@ -186,47 +187,63 @@ compare_models <- function(exp_data,
   relevance_ast <- aev_optional_ast(substitute(val_relevance), missing(val_relevance), caller)
   distance_ast <- aev_optional_ast(substitute(val_distance), missing(val_distance), caller)
   test <- fit_test_mortality(substitute(test_mortality), missing(test_mortality), Z, caller)
-  test_ast <- test$ast
 
-  if (!is.null(include)) {
-    if (is_includes(include)) {
-      stop("`include` takes a single `include`. Every candidate is fitted over one population.",
-           call. = FALSE)
-    }
-    ensure_is_include(include)
-  }
+  plan <- comparison_plan(models, labels, include, substitute(include), weight_ast,
+                          relevance_ast, distance_ast, test, substitute(test_mortality),
+                          Z, resolved,
+                          fit_method(NULL, L_tolerance, armijo, max_iterations, max_halvings))
 
-  columns <- exp_data_columns(exp_data)
+  run_plan_alone(plan, exp_data, resolved$time_scale_clicks, threads)
+}
 
-  # ONCE, FOR EVERY CANDIDATE. This is the whole mechanical reason this function
-  # exists rather than a loop over `fit()` in user code, and it is also where the
-  # header's population numbers come from.
-  population <- fit_population(test_ast, weight_ast, include, columns,
-                               resolved$time_scale_clicks, threads)
-  scale <- resolve_Z(Z, population)
+# THE SEAM `batch()` RUNS THROUGH, as `fit_plan()` is for one fit: the
+# specifications are the population pass, and the finaliser fits every
+# candidate. A candidate's failure is already recorded rather than raised, so
+# nothing here needs the `fit_failure` class that `fit_plan()` uses.
+comparison_plan <- function(models, labels, include, include_expr, weight_ast,
+                            relevance_ast, distance_ast, test, test_expr, Z,
+                            resolved, method) {
+
+  ensure_single_include(include, "Every candidate is fitted over one population.")
+
   arguments <- fit_arguments(include, weight_ast, relevance_ast, distance_ast, resolved)
-  call_labels <- fit_call_labels(substitute(test_mortality), test$name,
-                                 substitute(include), include, weight_ast)
+  call_labels <- fit_call_labels(test_expr, test$name, include_expr, include, weight_ast)
 
-  # EVERY CANDIDATE STARTS AT `beta = 0`, AND THERE IS NO `start` ARGUMENT HERE.
-  # `fit()` has one; a comparison deliberately does not. Newton-Raphson with
-  # relaxation converges fast enough from the reference mortality that the
-  # starting point does not matter in practice, and a per-candidate `start` can
-  # only be a list, because candidates differ in how many terms they have --
-  # which then wants naming, and a named list read positionally would produce a
-  # slower fit rather than an error. If a candidate ever does need help, the
-  # user's move is to translate `log mu^ref` by a weighted sum of the covariates
-  # so that `beta = 0` is where the data already is.
-  # `unname()` so the runs carry no names into the table's columns; the labels are
-  # the row names and are applied once, in `new_comparison()`.
-  runs <- lapply(unname(models), function(model) {
-    fit_engine_run(model, include, weight_ast, relevance_ast, distance_ast,
-                   columns, resolved, scale, NULL,
-                   L_tolerance, armijo, max_iterations, max_halvings, threads)
-  })
+  list(
+    specs = fit_population_specs(test$ast, weight_ast, include),
 
-  new_comparison(runs, models, labels, scale, resolved$overdispersion, L_tolerance,
-                 population, arguments, call_labels)
+    # ONE Z, FOR EVERY CANDIDATE. This is the whole mechanical reason this
+    # function exists rather than a loop over `fit()` in user code, and the same
+    # pass is where the header's population numbers come from.
+    #
+    # EVERY CANDIDATE STARTS AT `beta = 0`, AND THERE IS NO `start` ARGUMENT
+    # HERE. `fit()` has one; a comparison deliberately does not. Newton-Raphson
+    # with relaxation converges fast enough from the reference mortality that
+    # the starting point does not matter in practice, and a per-candidate
+    # `start` can only be a list, because candidates differ in how many terms
+    # they have -- which then wants naming, and a named list read positionally
+    # would produce a slower fit rather than an error. If a candidate ever does
+    # need help, the user's move is to translate `log mu^ref` by a weighted sum
+    # of the covariates so that `beta = 0` is where the data already is.
+    #
+    # THE CANDIDATES ARE FITTED TOGETHER, sharing every walk of the data, by
+    # `run_plans()`. `unname()` so the runs carry no names into the table's
+    # columns; the labels are the row names and are applied once, in
+    # `new_comparison()`.
+    fits = function(results) {
+      scale <- resolve_Z(Z, fit_population_read(results))
+      lapply(unname(models), function(model) {
+        fit_engine_spec(model, include, weight_ast, relevance_ast, distance_ast,
+                        resolved, scale, method)
+      })
+    },
+    finalise = function(results, runs) {
+      population <- fit_population_read(results)
+      new_comparison(runs, models, labels, resolve_Z(Z, population),
+                     resolved$overdispersion, method$L_tolerance, population,
+                     arguments, call_labels)
+    }
+  )
 }
 
 # ---- the candidates --------------------------------------------------------

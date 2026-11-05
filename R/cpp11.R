@@ -12,6 +12,10 @@ cpp_slow_lookup_log_mu <- function(log_mu_matrix, x0_clicks, t0_clicks, b_clicks
   .Call(`_logmu_cpp_slow_lookup_log_mu`, log_mu_matrix, x0_clicks, t0_clicks, b_clicks, t_clicks)
 }
 
+cpp_table_log_mu_series <- function(log_mu_matrix, x0_clicks, t0_clicks, b_clicks, t_clicks) {
+  .Call(`_logmu_cpp_table_log_mu_series`, log_mu_matrix, x0_clicks, t0_clicks, b_clicks, t_clicks)
+}
+
 cpp_deviance_residual <- function(A, E, V) {
   .Call(`_logmu_cpp_deviance_residual`, A, E, V)
 }
@@ -150,6 +154,10 @@ cpp_veil_fit <- function(mortality, terms, betas, weight, val_relevance, val_dis
 
 cpp_veil_fit_run <- function(mortality, terms, weight, val_relevance, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, disjoint, threads) {
   .Call(`_logmu_cpp_veil_fit_run`, mortality, terms, weight, val_relevance, val_distance, columns, time_scale, include, start, max_iterations, tolerance, armijo, max_halvings, overdispersion, z_scale, disjoint, threads)
+}
+
+cpp_veil_fit_runs <- function(fits, columns, time_scale, threads) {
+  .Call(`_logmu_cpp_veil_fit_runs`, fits, columns, time_scale, threads)
 }
 
 cpp_veil_run <- function(specs, columns, time_scale, keep_contributions, threads) {

@@ -2325,111 +2325,35 @@ cpp11::list cpp_veil_fit(
     });
 }
 
-// THE WHOLE NEWTON-RAPHSON FIT: compile once, then iterate.
-//
-// Everything below the compile is `veil::runFit`, which lives in the R-free core so a Python or C#
-// front end gets the same loop rather than a reimplementation of it. This function's whole job is to
-// turn R's arguments into a `FitControl` and the result back into a list.
-//
-// `mortality` is the REFERENCE mortality and must NOT carry beta: the recipe adds
-// `sum_j beta_j X_j` to it, with the coefficients lowered as parameters the loop overwrites between
-// iterations. Nothing is recompiled.
-[[cpp11::register]]
-cpp11::list cpp_veil_fit_run(
-    cpp11::list mortality,
-    cpp11::list terms,
-    SEXP weight,
-    SEXP val_relevance,
-    SEXP val_distance,
-    cpp11::list columns,
-    int time_scale,
-    SEXP include,
-    cpp11::doubles start,
-    int max_iterations,
-    double tolerance,
-    double armijo,
-    double max_halvings,
-    double overdispersion,
-    double z_scale,
-    bool disjoint,
-    int threads)
+namespace
 {
-    const cpp11::strings columnNames = columnNamesOf(columns);
-    std::vector<veil::TypeFull> columnTypes;
-    std::vector<std::optional<veil::TypeWithConstraints>> constraints;
-    veil::ColumnSet set;
-    const TextEncoding encoding = prepareColumns(columns, columnNames, set, columnTypes, constraints);
 
-    veil::ExposureColumns exposure;
-    exposure.start = exposureColumn(columnNames, columnTypes, "E2R_start", veil::Type::Datey);
-    exposure.end = exposureColumn(columnNames, columnTypes, "E2R_end", veil::Type::Datey);
-    exposure.died = exposureColumn(columnNames, columnTypes, "E2R_died", veil::Type::Bool);
-    exposure.deltaTClicks = veil::validateTimeScaleClicks(time_scale);
+// One fit's own arguments, as `runFitSpecs` takes them. Everything here may differ from one fit to the
+// next; the dataset, the time scale and the thread count may not, and travel beside them.
+//
+// HELD AS SEXPs, not as cpp11 objects, because every one of them is an argument of the `.Call` that
+// is running and so is protected by R for exactly as long as this code can see it.
+struct FitSpec final
+{
+    SEXP mortality = R_NilValue;
+    SEXP terms = R_NilValue;
+    SEXP weight = R_NilValue;
+    SEXP valRelevance = R_NilValue;
+    SEXP valDistance = R_NilValue;
+    SEXP include = R_NilValue;
+    std::vector<double> start;
+    int maxIterations = 0;
+    double tolerance = 0.0;
+    double armijo = 0.0;
+    double maxHalvings = 0.0;
+    double overdispersion = 0.0;
+    double zScale = 0.0;
+    bool disjoint = false;
+};
 
-    if (max_iterations < 1) { cpp11::stop("`max_iterations` must be at least one."); }
-    if (threads < 0) { cpp11::stop("`threads` cannot be negative."); }
-    if (!(tolerance > 0.0)) { cpp11::stop("`tolerance` must be a positive number."); }
-
-    // THE CEILING ON ARMIJO IS ONE HALF, and it is worth refusing rather than letting a fit stall.
-    // One half is exactly what a full Newton step delivers on a quadratic, so anything at or above
-    // it rejects the full step near the optimum and the iteration cannot finish.
-    if (!(armijo > 0.0) || !(armijo < 0.5))
-    {
-        cpp11::stop("`armijo` must lie strictly between 0 and 0.5.");
-    }
-
-    const R_xlen_t records = columns.size() == 0 ? 0 : Rf_xlength(VECTOR_ELT(SEXP(columns), 0));
-    const std::vector<const veil::ColumnView*> views = viewsByColumnId(set, columnNames);
-
-    // THE PRE-FLIGHT WALK COMES FIRST, and it has to: the fit block is compiled with the
-    // off-diagonal integrals left out, which is a decision taken before any record is read.
-    //
-    // A FALSE ASSERTION IS AN ERROR, NOT A QUIET FALLBACK TO THE FULL TRIANGLE. Computing the right
-    // answer anyway would leave the user believing something about their data that is not true, and
-    // the whole reason they wrote `disjoint()` is that they thought they knew.
-    if (disjoint)
-    {
-        std::vector<double> checkTotals;
-        const auto pairs = veil::disjointCheckPairs(static_cast<size_t>(terms.size()));
-        const size_t bad = runDisjointCheck(terms, include, columnNames, columnTypes, constraints,
-                                            encoding.mapping, exposure, views,
-                                            static_cast<size_t>(records),
-                                            static_cast<size_t>(threads), checkTotals);
-        if (bad < pairs.size())
-        {
-            // ONE-BASED, because the terms are numbered the way the user wrote them. The total is
-            // exposure-weighted years of overlap rather than a head count: that is what the
-            // reduction yields, and reporting the number we have beats computing a second one.
-            cpp11::stop("`disjoint()` says no individual is in more than one of these terms, but "
-                        "terms %d and %d overlap over %g years of exposure.",
-                        static_cast<int>(pairs[bad].first + 1),
-                        static_cast<int>(pairs[bad].second + 1),
-                        checkTotals[bad]);
-        }
-    }
-
-    FitBuild built = buildFit(mortality, terms, weight, val_relevance, val_distance, include,
-                              columnNames, columnTypes, constraints, encoding.mapping, exposure,
-                              disjoint);
-
-    veil::FitControl control;
-    control.start.assign(start.begin(), start.end());
-    control.maxIterations = static_cast<size_t>(max_iterations);
-    control.convergenceTolerance = tolerance;
-    control.armijo = armijo;
-    control.maxHalvings = static_cast<size_t>(max_halvings);
-    control.overdispersion = checkedOverdispersion(overdispersion);
-    control.zScale = z_scale;
-
-    const veil::FitResult fit = veil::runFit(built.block, views, static_cast<size_t>(records),
-                                             built.terms, built.offDiagonalsOmitted, control,
-                                             static_cast<size_t>(threads), userInterruptIsPending);
-
-    if (fit.status == veil::FitStatus::Interrupted)
-    {
-        cpp11::stop("The veil calculation was interrupted.");
-    }
-
+// What one fit returns to R. The same list whether the fit ran alone or alongside others.
+cpp11::writable::list fitResultAsList(const veil::FitResult& fit, const FitBuild& built)
+{
     const auto statusName = [](veil::FitStatus status)
     {
         switch (status)
@@ -2494,6 +2418,182 @@ cpp11::list cpp_veil_fit_run(
     });
 }
 
+// THE WHOLE NEWTON-RAPHSON FIT, for one model or several: compile each once, then iterate them
+// together.
+//
+// Everything below the compile is `veil::runFits`, which lives in the R-free core so a Python or C#
+// front end gets the same loop rather than a reimplementation of it. This function's whole job is to
+// turn R's arguments into `FitJob`s and the results back into lists.
+//
+// THE DATASET IS PREPARED ONCE FOR EVERY FIT, and every fit is validated and compiled before any
+// record is read, so a call with one bad fit fails the same way wherever that fit sits in the list.
+cpp11::writable::list runFitSpecs(
+    const std::vector<FitSpec>& specs,
+    cpp11::list columns,
+    int time_scale,
+    int threads)
+{
+    const cpp11::strings columnNames = columnNamesOf(columns);
+    std::vector<veil::TypeFull> columnTypes;
+    std::vector<std::optional<veil::TypeWithConstraints>> constraints;
+    veil::ColumnSet set;
+    const TextEncoding encoding = prepareColumns(columns, columnNames, set, columnTypes, constraints);
+
+    veil::ExposureColumns exposure;
+    exposure.start = exposureColumn(columnNames, columnTypes, "E2R_start", veil::Type::Datey);
+    exposure.end = exposureColumn(columnNames, columnTypes, "E2R_end", veil::Type::Datey);
+    exposure.died = exposureColumn(columnNames, columnTypes, "E2R_died", veil::Type::Bool);
+    exposure.deltaTClicks = veil::validateTimeScaleClicks(time_scale);
+
+    if (threads < 0) { cpp11::stop("`threads` cannot be negative."); }
+
+    for (const FitSpec& spec : specs)
+    {
+        if (spec.maxIterations < 1) { cpp11::stop("`max_iterations` must be at least one."); }
+        if (!(spec.tolerance > 0.0)) { cpp11::stop("`tolerance` must be a positive number."); }
+
+        // THE CEILING ON ARMIJO IS ONE HALF, and it is worth refusing rather than letting a fit
+        // stall. One half is exactly what a full Newton step delivers on a quadratic, so anything at
+        // or above it rejects the full step near the optimum and the iteration cannot finish.
+        if (!(spec.armijo > 0.0) || !(spec.armijo < 0.5))
+        {
+            cpp11::stop("`armijo` must lie strictly between 0 and 0.5.");
+        }
+    }
+
+    const R_xlen_t records = columns.size() == 0 ? 0 : Rf_xlength(VECTOR_ELT(SEXP(columns), 0));
+    const std::vector<const veil::ColumnView*> views = viewsByColumnId(set, columnNames);
+
+    // Reserved, because each job below holds a pointer to its build's block and a reallocation would
+    // move every block out from under it.
+    std::vector<FitBuild> builds;
+    builds.reserve(specs.size());
+
+    for (const FitSpec& spec : specs)
+    {
+        const cpp11::list terms(spec.terms);
+
+        // THE PRE-FLIGHT WALK COMES FIRST, and it has to: the fit block is compiled with the
+        // off-diagonal integrals left out, which is a decision taken before any record is read.
+        //
+        // A FALSE ASSERTION IS AN ERROR, NOT A QUIET FALLBACK TO THE FULL TRIANGLE. Computing the
+        // right answer anyway would leave the user believing something about their data that is not
+        // true, and the whole reason they wrote `disjoint()` is that they thought they knew.
+        if (spec.disjoint)
+        {
+            std::vector<double> checkTotals;
+            const auto pairs = veil::disjointCheckPairs(static_cast<size_t>(terms.size()));
+            const size_t bad = runDisjointCheck(terms, spec.include, columnNames, columnTypes,
+                                                constraints, encoding.mapping, exposure, views,
+                                                static_cast<size_t>(records),
+                                                static_cast<size_t>(threads), checkTotals);
+            if (bad < pairs.size())
+            {
+                // ONE-BASED, because the terms are numbered the way the user wrote them. The total
+                // is exposure-weighted years of overlap rather than a head count: that is what the
+                // reduction yields, and reporting the number we have beats computing a second one.
+                cpp11::stop("`disjoint()` says no individual is in more than one of these terms, but "
+                            "terms %d and %d overlap over %g years of exposure.",
+                            static_cast<int>(pairs[bad].first + 1),
+                            static_cast<int>(pairs[bad].second + 1),
+                            checkTotals[bad]);
+            }
+        }
+
+        builds.push_back(buildFit(cpp11::list(spec.mortality), terms, spec.weight,
+                                  spec.valRelevance, spec.valDistance, spec.include, columnNames,
+                                  columnTypes, constraints, encoding.mapping, exposure,
+                                  spec.disjoint));
+    }
+
+    std::vector<veil::FitJob> jobs;
+    jobs.reserve(specs.size());
+    for (size_t index = 0; index < specs.size(); ++index)
+    {
+        const FitSpec& spec = specs[index];
+
+        veil::FitControl control;
+        control.start = spec.start;
+        control.maxIterations = static_cast<size_t>(spec.maxIterations);
+        control.convergenceTolerance = spec.tolerance;
+        control.armijo = spec.armijo;
+        control.maxHalvings = static_cast<size_t>(spec.maxHalvings);
+        control.overdispersion = checkedOverdispersion(spec.overdispersion);
+        control.zScale = spec.zScale;
+
+        jobs.push_back(veil::FitJob{&builds[index].block, builds[index].terms,
+                                    builds[index].offDiagonalsOmitted, control});
+    }
+
+    const std::vector<veil::FitResult> fits = veil::runFits(
+        jobs, views, static_cast<size_t>(records), static_cast<size_t>(threads),
+        userInterruptIsPending);
+
+    // An interrupt stops every fit at once, so any one of them having stopped means they all have.
+    for (const veil::FitResult& fit : fits)
+    {
+        if (fit.status == veil::FitStatus::Interrupted)
+        {
+            cpp11::stop("The veil calculation was interrupted.");
+        }
+    }
+
+    cpp11::writable::list out(static_cast<R_xlen_t>(fits.size()));
+    for (size_t index = 0; index < fits.size(); ++index)
+    {
+        out[static_cast<R_xlen_t>(index)] = fitResultAsList(fits[index], builds[index]);
+    }
+    return out;
+}
+
+} // namespace
+
+// ONE FIT: `runFitSpecs` with a single specification, so a fit alone and a fit among others take the
+// same path.
+//
+// `mortality` is the REFERENCE mortality and must NOT carry beta: the recipe adds
+// `sum_j beta_j X_j` to it, with the coefficients lowered as parameters the loop overwrites between
+// iterations. Nothing is recompiled.
+[[cpp11::register]]
+cpp11::list cpp_veil_fit_run(
+    cpp11::list mortality,
+    cpp11::list terms,
+    SEXP weight,
+    SEXP val_relevance,
+    SEXP val_distance,
+    cpp11::list columns,
+    int time_scale,
+    SEXP include,
+    cpp11::doubles start,
+    int max_iterations,
+    double tolerance,
+    double armijo,
+    double max_halvings,
+    double overdispersion,
+    double z_scale,
+    bool disjoint,
+    int threads)
+{
+    FitSpec spec;
+    spec.mortality = mortality;
+    spec.terms = terms;
+    spec.weight = weight;
+    spec.valRelevance = val_relevance;
+    spec.valDistance = val_distance;
+    spec.include = include;
+    spec.start.assign(start.begin(), start.end());
+    spec.maxIterations = max_iterations;
+    spec.tolerance = tolerance;
+    spec.armijo = armijo;
+    spec.maxHalvings = max_halvings;
+    spec.overdispersion = overdispersion;
+    spec.zScale = z_scale;
+    spec.disjoint = disjoint;
+
+    const cpp11::writable::list results = runFitSpecs({spec}, columns, time_scale, threads);
+    return cpp11::list(VECTOR_ELT(SEXP(results), 0));
+}
+
 namespace
 {
 
@@ -2514,6 +2614,63 @@ SEXP elementOrNull(const cpp11::list& list, const char* name)
 }
 
 } // namespace
+
+// SEVERAL FITS OVER ONE DATASET, sharing every walk of the data -- see `veil::runFits`. This is what
+// `compare_models()` and a `batch()` of fits run through, and it is what lets their fits use the
+// whole thread pool on a dataset too small for one fit to fill it.
+//
+// `fits` is a list of lists, each holding one fit's arguments under the names `cpp_veil_fit_run`
+// gives them (`mortality`, `terms`, `start`, `max_iterations`, `tolerance`, `armijo`,
+// `max_halvings`, `overdispersion`, `z_scale`, `disjoint`, and optionally `weight`, `val_relevance`,
+// `val_distance` and `include`). The dataset, the time scale and the thread count are shared. Returns
+// one list per fit, in order, each exactly what `cpp_veil_fit_run` returns for that fit alone.
+[[cpp11::register]]
+cpp11::list cpp_veil_fit_runs(
+    cpp11::list fits,
+    cpp11::list columns,
+    int time_scale,
+    int threads)
+{
+    std::vector<FitSpec> specs;
+    specs.reserve(static_cast<size_t>(fits.size()));
+
+    for (R_xlen_t index = 0; index < fits.size(); ++index)
+    {
+        const cpp11::list fit(VECTOR_ELT(SEXP(fits), index));
+        const auto required = [&fit, index](const char* name)
+        {
+            const SEXP value = elementOrNull(fit, name);
+            if (value == R_NilValue)
+            {
+                cpp11::stop("Fit %d has no `%s`.", static_cast<int>(index + 1), name);
+            }
+            return value;
+        };
+
+        FitSpec spec;
+        spec.mortality = required("mortality");
+        spec.terms = required("terms");
+        spec.weight = elementOrNull(fit, "weight");
+        spec.valRelevance = elementOrNull(fit, "val_relevance");
+        spec.valDistance = elementOrNull(fit, "val_distance");
+        spec.include = elementOrNull(fit, "include");
+
+        const cpp11::doubles start(required("start"));
+        spec.start.assign(start.begin(), start.end());
+
+        spec.maxIterations = cpp11::as_cpp<int>(required("max_iterations"));
+        spec.tolerance = cpp11::as_cpp<double>(required("tolerance"));
+        spec.armijo = cpp11::as_cpp<double>(required("armijo"));
+        spec.maxHalvings = cpp11::as_cpp<double>(required("max_halvings"));
+        spec.overdispersion = cpp11::as_cpp<double>(required("overdispersion"));
+        spec.zScale = cpp11::as_cpp<double>(required("z_scale"));
+        spec.disjoint = cpp11::as_cpp<bool>(required("disjoint"));
+
+        specs.push_back(std::move(spec));
+    }
+
+    return runFitSpecs(specs, columns, time_scale, threads);
+}
 
 // Runs SEVERAL AEV specifications over ONE dataset in a single crossing.
 //

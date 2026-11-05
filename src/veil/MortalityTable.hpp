@@ -11,7 +11,8 @@
 #include <stdexcept>
 #include <vector>
 #include "datey.h" // isValidDatey
-#include "mortality/lookup_log_mu.hpp" // the lookup's one definition -- R-free, so the core stays R-free
+#include "vec_ops/vec_ops.hpp" // tier::table_log_mu_SV_V, which compiles `mortality/lookup_log_mu.hpp`
+#include "veil/TimeGrid.hpp"
 
 namespace veil
 {
@@ -43,7 +44,14 @@ using TableId = uint32_t;
 
 constexpr TableId invalidTableId = static_cast<TableId>(-1);
 
-// log mu for one individual at one instant.
+// log mu for one individual at slots [first, slots) of their time grid, written to the same slots
+// of `result`. `instants` is scratch, reused from one individual to the next so that nothing is
+// allocated per individual once it has grown to the longest lifeline.
+//
+// ONE CALL PER INDIVIDUAL, NOT PER SLOT. The lookup blends the two cohort columns either side of the
+// birth once per period the lifeline spans, then does one multiply-add per slot; and it runs in the
+// active SIMD tier, where the multiply-adds fuse. Measured on a 60-slot lifeline that took a slot
+// from 6.3 ns to 2.5 ns.
 //
 // THE SEMANTICS ARE NOT VEIL'S TO CHOOSE. `log_mu()` on a `mortality_table` in R answers the same
 // question, and both compile the one definition in `mortality/lookup_log_mu.hpp`, so they run the
@@ -65,25 +73,43 @@ constexpr TableId invalidTableId = static_cast<TableId>(-1);
 // a bad value would surface: an out-of-calendar date puts the lattice index far outside the table,
 // the lookup CLAMPS to the edge, and what comes back is a perfectly plausible log mu for the wrong
 // individual. A missing birth date is the way that actually happens, R's NA integer being the most
-// negative int. The two comparisons cost nothing against the divmods, four loads and three
-// multiply-adds below.
-inline double logMuAt(const MortalityTable& table, int64_t birthClicks, int64_t tClicks)
+// negative int. The birth is checked once; each instant is checked as it is narrowed, which costs
+// two comparisons a slot and does not lean on the grid being in order.
+inline void logMuAlongGrid(
+    const MortalityTable& table, int64_t birthClicks, const TimeGrid& grid, int first, int slots,
+    std::vector<int>& instants, double* result)
 {
+    if (slots <= first)
+    {
+        return;
+    }
     if (!isValidDatey(birthClicks))
     {
         throw std::runtime_error("veil: a birth date is missing, or outside the calendar, so log mu "
                                  "cannot be looked up.");
     }
-    if (!isValidDatey(tClicks))
+
+    const int count = slots - first;
+    if (instants.size() < static_cast<size_t>(count))
     {
-        throw std::runtime_error("veil: a log mu lookup was asked for an instant outside the calendar.");
+        instants.resize(static_cast<size_t>(count));
+    }
+    for (int index = 0; index < count; ++index)
+    {
+        const int64_t tClicks = grid.clicksAt(first + index);
+        if (!isValidDatey(tClicks))
+        {
+            throw std::runtime_error("veil: a log mu lookup was asked for an instant outside the calendar.");
+        }
+        instants[static_cast<size_t>(index)] = static_cast<int>(tClicks);
     }
 
-    return mortality::interpolatedLogMu(
+    const tier::annual_log_mu_table view{
         table.logMu.data(),
         static_cast<int>(table.periodCount), static_cast<int>(table.ageCount),
-        table.t0Clicks, table.x0Clicks,
-        static_cast<int>(birthClicks), static_cast<int>(tClicks));
+        table.t0Clicks, table.x0Clicks};
+
+    tier::table_log_mu_SV_V(count, view, static_cast<int>(birthClicks), instants.data(), result + first);
 }
 
 } // namespace veil

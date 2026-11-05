@@ -12,27 +12,37 @@ batch(
   .val_relevance = NULL,
   .val_distance = NULL,
   .breakdown = NULL,
+  .test_mortality = NULL,
+  .Z = NULL,
   .settings = NULL,
   .overdispersion = NULL,
   .time_scale = NULL,
+  .L_tolerance = NULL,
+  .armijo = NULL,
+  .max_iterations = NULL,
+  .max_halvings = NULL,
   .threads = cpp_veil_default_threads()
 )
 }
 \arguments{
-\item{...}{Named calls to \strong{logmu} analyses, currently \code{\link[=aev]{aev()}}. Each name
-becomes a name in the result and may not begin with a dot.}
+\item{...}{Named calls to \strong{logmu} analyses: \code{\link[=aev]{aev()}}, \code{\link[=fit]{fit()}} or
+\code{\link[=compare_models]{compare_models()}}. Each name becomes a name in the result and may not
+begin with a dot.}
 
-\item{.exp_data, .include, .weight, .val_relevance, .val_distance, .breakdown, .settings, .overdispersion, .time_scale}{Defaults for the analyses, each standing in for the argument of the same
-name wherever an analysis does not supply its own. \code{.val_relevance} and
-\code{.val_distance} are two spellings of one quantity, so only one may be given
-and an analysis naming either of them takes neither default.}
+\item{.exp_data, .include, .weight, .val_relevance, .val_distance, .breakdown, .test_mortality, .Z, .settings, .overdispersion, .time_scale, .L_tolerance, .armijo, .max_iterations, .max_halvings}{Defaults for the analyses, each standing in for the argument of the same
+name wherever an analysis does not supply its own, and ignored by an
+analysis that has no such argument. \code{.val_relevance} and \code{.val_distance}
+are two spellings of one quantity, as \code{.test_mortality} and \code{.Z} are two
+ways of setting one scale, so only one of each pair may be given, and an
+analysis naming either half of a pair takes neither default.}
 
 \item{.threads}{Worker threads for the whole batch. \code{0} asks for as many as
 the machine reports.}
 }
 \value{
 A named list holding each analysis's own result, in the order
-written. Nothing else -- no class, no attributes.
+written, or a \code{fit_failure} condition for a fit that failed. Nothing else
+-- no class, no attributes.
 }
 \description{
 \code{batch()} takes named calls to \strong{logmu} analyses and runs them together:
@@ -69,6 +79,25 @@ silently against something of the same name in your workspace.
 A batch runs over \strong{one experience dataset}. Analyses may differ in
 \code{time_scale}, which is worth doing to see whether the integration interval
 moves the answer; a batch then makes one pass per distinct scale.
+}
+
+\section{Fits in a batch}{
+
+\code{\link[=fit]{fit()}} and \code{\link[=compare_models]{compare_models()}} may be batched alongside \code{\link[=aev]{aev()}}. The pass
+each makes over the population, for \eqn{Z} and the figures its header
+reports, joins the batch's shared pass. Once that pass is over, every model
+in the batch -- each fit's, and each candidate of each comparison -- is
+fitted together: each iteration's walk of the data serves every model still
+iterating, and each converges on its own. The answers are exactly those of
+the same calls made alone; only the time taken changes.
+
+\strong{A fit that fails does not stop the batch.} Where a lone \code{fit()} would
+raise an error because the model is not identifiable or did not converge,
+its element holds that error instead -- a condition of class \code{fit_failure},
+carrying the message and the engine's \code{status} -- and one warning names
+every element that failed. \code{stop()} on the element raises the error exactly
+as the lone call would have. Anything else that goes wrong, such as a
+malformed argument or an interrupt, still stops the whole batch.
 }
 
 \examples{

@@ -300,7 +300,9 @@ aev_plan <- function(mortality_ast, weight_ast, val_relevance_ast, val_distance_
 
   list(
     specs = specs,
-    finalise = function(results) {
+    # `runs` is what a fitting plan's finaliser takes as well, the runs of the
+    # fits it asked for. An A/E asks for none.
+    finalise = function(results, runs = NULL) {
       totals <- function(what) {
         vapply(results, function(result) result[[what]], numeric(1L))
       }

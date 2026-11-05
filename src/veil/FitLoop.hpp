@@ -6,11 +6,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <functional>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include "veil/Block.hpp"
 #include "veil/Cholesky.hpp"
@@ -32,7 +34,7 @@ namespace veil
 // ONE WALK PER EVALUATION, AND ONE EVALUATION PER ITERATION when nothing is damped. The accepted
 // trial's accumulation carries into the next iteration rather than being recomputed, which is why
 // there is no second likelihood-only block: a trial evaluation and the next iteration's
-// accumulation are the same walk.
+// accumulation are the same walk. Several fits share each walk -- see `runFits` at the bottom.
 //
 // OMEGA AND Z NEVER ENTER THE LOOP. The Newton step is free of both -- neither moves the argmax --
 // and they scale both sides of the acceptance test identically, so they cancel out of it. They
@@ -191,94 +193,160 @@ inline bool allFinite(const std::vector<double>& values)
     return true;
 }
 
-} // namespace detail
-
-// Runs the loop. `block` must be a fit block with `terms` coefficients lowered as parameters, and it
-// is taken by non-const reference for exactly one reason: the coefficients are set on it.
-inline FitResult runFit(
-    Block& block,
-    const std::vector<const ColumnView*>& columns,
-    size_t records,
-    size_t terms,
-
-    // How the BLOCK was built, not a choice the loop makes: true when the covariates were verified
-    // mutually exclusive and the block therefore carries only the diagonal of each triangle.
-    bool offDiagonalsOmitted,
-    const FitControl& control,
-    size_t threads,
-    const std::function<bool()>& interrupted)
+// ONE FIT'S WAY THROUGH THE LOOP, advanced one walk at a time.
+//
+// THE LOOP IS INVERTED RATHER THAN CHANGED. Every evaluation is one walk of the data, and the only
+// thing a fit needs from a walk is its totals, so the loop can be stopped wherever it would have
+// walked and resumed when the totals arrive. That is what lets `runFits` below walk the data once for
+// every fit that still wants a walk, rather than once per fit. Between walks this is exactly the
+// sequential loop it replaced: the same tests in the same order on the same numbers.
+//
+// The block is held by pointer for exactly one reason: the coefficients are set on it.
+class FitStepper final
 {
-    if (!control.start.empty() && control.start.size() != terms)
-    {
-        throw std::runtime_error("veil: the starting beta has the wrong number of coefficients.");
-    }
-    if (!(control.overdispersion > 0.0) || !(control.zScale > 0.0))
-    {
-        throw std::runtime_error("veil: overdispersion and Z must both be positive.");
-    }
+public:
+    FitStepper(Block& fitBlock, size_t termCount, bool diagonalOnly, const FitControl& fitControl)
+        : blockPointer(&fitBlock),
+          terms(termCount),
+          offDiagonalsOmitted(diagonalOnly),
+          control(fitControl),
 
-    FitResult result;
-    result.beta = control.start.empty() ? std::vector<double>(terms, 0.0) : control.start;
-
-    // Both scalars enter here and nowhere else in the loop.
-    const double scale = control.overdispersion * control.zScale;
-
-    // Set the coefficients, walk the data, unpack. `stopped` is a flag rather than an exception
-    // because an interruption is something the host ASKED for, not an error -- the same reason
-    // `CalculationResult` reports it as a field.
-    bool stopped = false;
-    const auto walk = [&](const std::vector<double>& beta) -> detail::FitAccumulation
+          // Both scalars enter here and nowhere else in the loop.
+          scale(fitControl.overdispersion * fitControl.zScale)
     {
-        for (size_t j = 0; j < terms; ++j)
+        if (!this->control.start.empty() && this->control.start.size() != this->terms)
         {
-            block.setParameter(static_cast<ParamId>(j), beta[j]);
+            throw std::runtime_error("veil: the starting beta has the wrong number of coefficients.");
         }
-        const CalculationResult calculation =
-            runCalculation(block, columns, records, false, threads, interrupted);
-        if (calculation.interrupted)
+        if (!(this->control.overdispersion > 0.0) || !(this->control.zScale > 0.0))
         {
-            // THE TOTALS ARE MEANINGLESS when a run is cut short -- some chunks contributed and some
-            // did not -- so nothing is unpacked from them.
-            stopped = true;
-            return detail::FitAccumulation{};
+            throw std::runtime_error("veil: overdispersion and Z must both be positive.");
         }
-        ++result.evaluations;
-        return detail::unpackFit(calculation.totals, terms, offDiagonalsOmitted);
+
+        this->result.beta = this->control.start.empty()
+            ? std::vector<double>(this->terms, 0.0)
+            : this->control.start;
+    }
+
+    bool finished() const noexcept { return this->phase == Phase::Finished; }
+
+    Block& block() const noexcept { return *this->blockPointer; }
+
+    // Sets the coefficients the next walk is to be made at: the starting point first, and a trial
+    // step after that.
+    void prepareWalk()
+    {
+        const std::vector<double>& beta =
+            this->phase == Phase::FirstWalk ? this->result.beta : this->trialBeta;
+        for (size_t j = 0; j < this->terms; ++j)
+        {
+            this->blockPointer->setParameter(static_cast<ParamId>(j), beta[j]);
+        }
+    }
+
+    // Takes one walk's totals and runs the loop on until it needs another walk or is finished.
+    void receive(const std::vector<double>& totals)
+    {
+        FitAccumulation walked = unpackFit(totals, this->terms, this->offDiagonalsOmitted);
+        ++this->result.evaluations;
+
+        if (this->phase == Phase::FirstWalk)
+        {
+            this->current = std::move(walked);
+            this->result.iterations = 1;
+            this->startIteration();
+            return;
+        }
+
+        // A NON-FINITE TRIAL IS NOT AN IMPROVEMENT. `Ew` overflows once `beta^T X` reaches about
+        // 709, which a first step from a badly levelled reference table can easily clear, and the
+        // objective then comes back as an infinity or a NaN.
+        //
+        // THE `isfinite` TEST IS BELT AND BRACES AND IS KNOWN TO BE SO -- a disable-and-recheck
+        // removed it and not one test moved. It is redundant because every comparison against a NaN
+        // is false, so a NaN gain fails the Armijo inequality on its own and the step is halved
+        // regardless; and an infinite `Ew` gives a gain of minus infinity, which fails it too. It is
+        // kept because the redundancy depends on how the inequality below happens to be written, and
+        // a later hand rearranging that should not silently lose the guard. Do not claim a test
+        // covers this: none does, and none easily could.
+        //
+        // ARMIJO RATHER THAN ANY IMPROVEMENT. A step may improve the objective by an arbitrarily
+        // small amount and still be accepted, which is how an iteration crawls to a halt away from
+        // the optimum. Omega and Z cancel from both sides, so this runs on raw values.
+        const double gain = walked.rawLogLikelihood() - this->current.rawLogLikelihood();
+        if (std::isfinite(walked.rawLogLikelihood())
+            && gain >= this->control.armijo * this->length * this->decrement)
+        {
+            // THE ACCEPTED TRIAL IS THE NEXT ITERATION'S ACCUMULATION, which is why there is no
+            // second likelihood-only block.
+            this->result.beta = this->trialBeta;
+            this->current = std::move(walked);
+            ++this->result.iterations;
+            this->startIteration();
+            return;
+        }
+
+        this->length *= 0.5;
+        ++this->halving;
+        if (this->halving > this->control.maxHalvings)
+        {
+            this->finish(FitStatus::StepCollapsed);
+            return;
+        }
+        this->setTrial();
+    }
+
+    // THE TOTALS ARE MEANINGLESS when a run is cut short -- some chunks contributed and some did not
+    // -- so nothing is taken from them. A status rather than an exception because an interruption
+    // is something the host ASKED for, not an error, the same reason `CalculationResult` reports it
+    // as a field.
+    void interrupt() noexcept { this->finish(FitStatus::Interrupted); }
+
+    FitResult takeResult() { return std::move(this->result); }
+
+private:
+    enum class Phase : unsigned char
+    {
+        FirstWalk,
+        TrialWalk,
+        Finished,
     };
 
-    detail::FitAccumulation current = walk(result.beta);
-    if (stopped)
+    // The top of one iteration, or the end of the budget.
+    void startIteration()
     {
-        result.status = FitStatus::Interrupted;
-        return result;
-    }
+        if (this->result.iterations > this->control.maxIterations)
+        {
+            this->result.iterations = this->control.maxIterations;
+            this->result.logLikelihood = this->current.rawLogLikelihood() / this->scale;
+            this->finish(FitStatus::DidNotConverge);
+            return;
+        }
 
-    for (result.iterations = 1; result.iterations <= control.maxIterations; ++result.iterations)
-    {
-        result.logLikelihood = current.rawLogLikelihood() / scale;
+        this->result.logLikelihood = this->current.rawLogLikelihood() / this->scale;
 
         // ASKED BEFORE THE FACTORISATION, because a NaN pivot would otherwise be reported as an
         // ordinary singularity and send the user hunting for a collinear covariate that does not
         // exist. A NaN here is bad data, not a bad model.
-        if (!std::isfinite(current.rawLogLikelihood())
-            || !detail::allFinite(current.gradient)
-            || !detail::allFinite(current.information))
+        if (!std::isfinite(this->current.rawLogLikelihood())
+            || !allFinite(this->current.gradient)
+            || !allFinite(this->current.information))
         {
-            result.status = FitStatus::NotFinite;
-            return result;
+            this->finish(FitStatus::NotFinite);
+            return;
         }
 
-        const CholeskyFactor factor = choleskyFactorPacked(current.information, terms);
+        const CholeskyFactor factor = choleskyFactorPacked(this->current.information, this->terms);
         if (!factor.positiveDefinite())
         {
-            result.status = FitStatus::NotIdentifiable;
-            result.factorStatus = factor.status;
-            result.failedParameter = factor.failedParameter;
-            result.dependency = choleskyDependency(factor);
-            return result;
+            this->result.factorStatus = factor.status;
+            this->result.failedParameter = factor.failedParameter;
+            this->result.dependency = choleskyDependency(factor);
+            this->finish(FitStatus::NotIdentifiable);
+            return;
         }
 
-        const std::vector<double> step = choleskySolve(factor, current.gradient);
+        this->step = choleskySolve(factor, this->current.gradient);
 
         // FROM THE SQUARED FORM, NOT FROM `gradient . step`. The quadratic form is the squared norm
         // of the solve's own forward substitution, so it is a sum of squares and CANNOT come back
@@ -290,80 +358,171 @@ inline FitResult runFit(
         // available. `predictedGain` is therefore a change in L, and the tolerance is compared
         // against it directly -- which is what makes the tolerance mean "the largest insignificant
         // change in L" rather than half of one.
-        const double decrement = choleskyQuadraticForm(factor, current.gradient);
-        result.predictedGain = decrement / (2.0 * scale);
+        this->decrement = choleskyQuadraticForm(factor, this->current.gradient);
+        this->result.predictedGain = this->decrement / (2.0 * this->scale);
 
-        if (result.predictedGain <= control.convergenceTolerance)
+        if (this->result.predictedGain <= this->control.convergenceTolerance)
         {
-            result.status = FitStatus::Converged;
-            result.variance = choleskySandwich(factor, current.secondMoment);
-            for (double& entry : result.variance) { entry *= control.overdispersion; }
-            result.penalty = choleskyTraceOfProductWithInverse(factor, current.secondMoment)
-                / control.zScale;
-            return result;
+            this->result.variance = choleskySandwich(factor, this->current.secondMoment);
+            for (double& entry : this->result.variance) { entry *= this->control.overdispersion; }
+            this->result.penalty =
+                choleskyTraceOfProductWithInverse(factor, this->current.secondMoment)
+                / this->control.zScale;
+            this->finish(FitStatus::Converged);
+            return;
         }
 
-        // THE FULL STEP FIRST, because it is what is accepted in all but the earliest iterations,
-        // and the accepted trial IS the next iteration's accumulation.
-        std::vector<double> trialBeta(terms, 0.0);
-        detail::FitAccumulation trial;
-        bool accepted = false;
-        double length = 1.0;
-
-        for (size_t halving = 0; halving <= control.maxHalvings; ++halving)
-        {
-            for (size_t j = 0; j < terms; ++j)
-            {
-                trialBeta[j] = result.beta[j] + length * step[j];
-            }
-
-            trial = walk(trialBeta);
-            if (stopped)
-            {
-                result.status = FitStatus::Interrupted;
-                return result;
-            }
-
-            // A NON-FINITE TRIAL IS NOT AN IMPROVEMENT. `Ew` overflows once `beta^T X` reaches
-            // about 709, which a first step from a badly levelled reference table can easily clear,
-            // and the objective then comes back as an infinity or a NaN.
-            //
-            // THE `isfinite` TEST IS BELT AND BRACES AND IS KNOWN TO BE SO -- a disable-and-recheck
-            // removed it and not one test moved. It is redundant because every comparison against a
-            // NaN is false, so a NaN gain fails the Armijo inequality on its own and the step is
-            // halved regardless; and an infinite `Ew` gives a gain of minus infinity, which fails it
-            // too. It is kept because the redundancy depends on how the inequality below happens to
-            // be written, and a later hand rearranging that should not silently lose the guard.
-            // Do not claim a test covers this: none does, and none easily could.
-            //
-            // ARMIJO RATHER THAN ANY IMPROVEMENT. A step may improve the objective by an arbitrarily
-            // small amount and still be accepted, which is how an iteration crawls to a halt away
-            // from the optimum. Omega and Z cancel from both sides, so this runs on raw values.
-            const double gain = trial.rawLogLikelihood() - current.rawLogLikelihood();
-            if (std::isfinite(trial.rawLogLikelihood())
-                && gain >= control.armijo * length * decrement)
-            {
-                accepted = true;
-                break;
-            }
-            length *= 0.5;
-        }
-
-        if (!accepted)
-        {
-            result.status = FitStatus::StepCollapsed;
-            return result;
-        }
-
-        result.beta = trialBeta;
-        current = trial;
+        // THE FULL STEP FIRST, because it is what is accepted in all but the earliest iterations.
+        this->length = 1.0;
+        this->halving = 0;
+        this->setTrial();
     }
 
-    // The budget ran out. `iterations` is one past the last, so bring it back.
-    result.iterations = control.maxIterations;
-    result.logLikelihood = current.rawLogLikelihood() / scale;
-    result.status = FitStatus::DidNotConverge;
-    return result;
+    void setTrial()
+    {
+        this->trialBeta.assign(this->terms, 0.0);
+        for (size_t j = 0; j < this->terms; ++j)
+        {
+            this->trialBeta[j] = this->result.beta[j] + this->length * this->step[j];
+        }
+        this->phase = Phase::TrialWalk;
+    }
+
+    void finish(FitStatus status) noexcept
+    {
+        this->result.status = status;
+        this->phase = Phase::Finished;
+    }
+
+    Block* blockPointer;
+    size_t terms;
+    bool offDiagonalsOmitted;
+    FitControl control;
+    double scale;
+
+    Phase phase = Phase::FirstWalk;
+    FitResult result;
+    FitAccumulation current;
+
+    // The iteration in progress: its Newton step, the decrement it promises, and how far along it
+    // the trial being walked lies.
+    std::vector<double> step;
+    double decrement = 0.0;
+    double length = 1.0;
+    size_t halving = 0;
+    std::vector<double> trialBeta;
+};
+
+} // namespace detail
+
+// One fit to be run by `runFits`. `block` must be a fit block with `terms` coefficients lowered as
+// parameters, and no two jobs may share one, since each fit sets its own coefficients on it.
+struct FitJob final
+{
+    Block* block = nullptr;
+    size_t terms = 0;
+
+    // How the BLOCK was built, not a choice the loop makes: true when the covariates were verified
+    // mutually exclusive and the block therefore carries only the diagonal of each triangle.
+    bool offDiagonalsOmitted = false;
+    FitControl control;
+};
+
+// Runs several fits over ONE dataset, returning one result per job in job order.
+//
+// ONE WALK PER ROUND FOR EVERY FIT STILL GOING. Each round sets every unfinished fit's coefficients on
+// its own block and evaluates all of those blocks together in one `runCalculations`, which schedules
+// (block, chunk) pairs as one task list. A lone fit on a small dataset has too few chunks to keep the
+// pool busy; several fits walked together have several times as many. A fit that has finished simply
+// drops out of the next round.
+//
+// IT CANNOT MOVE AN ANSWER. Each block accumulates per chunk and folds in chunk order whatever else
+// shares the walk -- the argument on `runCalculations` -- and each fit sees only its own totals, so a
+// fit run alongside others is bit-identical to the same fit run alone. That is also why `runFit`
+// below is this function with one job rather than a loop of its own.
+//
+// EVERY JOB IS VALIDATED BEFORE ANY RECORD IS READ, so one bad job fails the call the same way
+// whether or not the others would have run. An exception raised during a walk fails the whole call,
+// as it would a single fit. AN INTERRUPT STOPS EVERY FIT, since it cuts every block's walk short at
+// once.
+inline std::vector<FitResult> runFits(
+    const std::vector<FitJob>& jobs,
+    const std::vector<const ColumnView*>& columns,
+    size_t records,
+    size_t threads,
+    const std::function<bool()>& interrupted)
+{
+    std::vector<const Block*> distinct;
+    distinct.reserve(jobs.size());
+    for (const FitJob& job : jobs)
+    {
+        if (job.block == nullptr) { throw std::runtime_error("veil: a fit needs a block."); }
+        distinct.push_back(job.block);
+    }
+    std::sort(distinct.begin(), distinct.end());
+    if (std::adjacent_find(distinct.begin(), distinct.end()) != distinct.end())
+    {
+        throw std::runtime_error("veil: two fits cannot share one block.");
+    }
+
+    std::vector<detail::FitStepper> steppers;
+    steppers.reserve(jobs.size());
+    for (const FitJob& job : jobs)
+    {
+        steppers.emplace_back(*job.block, job.terms, job.offDiagonalsOmitted, job.control);
+    }
+
+    std::vector<size_t> walking;
+    std::vector<const Block*> blocks;
+    while (true)
+    {
+        walking.clear();
+        blocks.clear();
+        for (size_t index = 0; index < steppers.size(); ++index)
+        {
+            if (steppers[index].finished()) { continue; }
+            steppers[index].prepareWalk();
+            walking.push_back(index);
+            blocks.push_back(&steppers[index].block());
+        }
+        if (walking.empty()) { break; }
+
+        const std::vector<CalculationResult> calculations =
+            runCalculations(blocks, columns, records, false, threads, interrupted);
+
+        if (calculations.front().interrupted)
+        {
+            for (const size_t index : walking) { steppers[index].interrupt(); }
+            break;
+        }
+
+        for (size_t position = 0; position < walking.size(); ++position)
+        {
+            steppers[walking[position]].receive(calculations[position].totals);
+        }
+    }
+
+    std::vector<FitResult> results;
+    results.reserve(steppers.size());
+    for (detail::FitStepper& stepper : steppers) { results.push_back(stepper.takeResult()); }
+    return results;
+}
+
+// Runs ONE fit: `runFits` with a single job, so that a fit alone and a fit among others take the same
+// path through the same code. `block` is taken by non-const reference for exactly one reason: the
+// coefficients are set on it.
+inline FitResult runFit(
+    Block& block,
+    const std::vector<const ColumnView*>& columns,
+    size_t records,
+    size_t terms,
+    bool offDiagonalsOmitted,
+    const FitControl& control,
+    size_t threads,
+    const std::function<bool()>& interrupted)
+{
+    const std::vector<FitJob> jobs{FitJob{&block, terms, offDiagonalsOmitted, control}};
+    return std::move(runFits(jobs, columns, records, threads, interrupted).front());
 }
 
 } // namespace veil

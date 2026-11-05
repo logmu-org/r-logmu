@@ -102,3 +102,37 @@ cpp11::doubles cpp_slow_lookup_log_mu(
 
   return result;
 }
+
+[[cpp11::register]]
+// One birth along many instants through the veil engine's bulk lookup, in the active SIMD tier.
+// FOR THE TESTS: it is the only way to compare the bulk path with `cpp_slow_lookup_log_mu()` value
+// by value, since the engine itself only ever reports integrals.
+cpp11::doubles cpp_table_log_mu_series(
+  cpp11::doubles log_mu_matrix,
+  int x0_clicks, int t0_clicks,
+  int b_clicks, cpp11::integers t_clicks
+)
+{
+  auto matrix_dims = cpp11::as_cpp<cpp11::integers>(log_mu_matrix.attr("dim"));
+  if (matrix_dims.size() != 2 || matrix_dims[0] < 1 || matrix_dims[1] < 1)
+  {
+    cpp11::stop("`log_mu_matrix` must be a non-empty matrix.");
+  }
+  if (!isValidDatey(b_clicks))
+  {
+    cpp11::stop("`b_clicks` must be a valid datey.");
+  }
+  for (int t : t_clicks)
+  {
+    if (!isValidDatey(t)) { cpp11::stop("`t_clicks` must all be valid dateys."); }
+  }
+
+  const R_xlen_t n = t_clicks.size();
+  cpp11::writable::doubles result(n);
+
+  const tier::annual_log_mu_table table{
+    REAL(log_mu_matrix), matrix_dims[1], matrix_dims[0], t0_clicks, x0_clicks};
+  tier::table_log_mu_SV_V(n, table, b_clicks, INTEGER(t_clicks), REAL(result));
+
+  return result;
+}

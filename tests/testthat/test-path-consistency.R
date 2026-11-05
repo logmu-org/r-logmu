@@ -119,3 +119,47 @@ test_that("the lookup clamps age and period independently at every edge", {
   expect_identical(at(1950, 2050), lookup_table[51, last_period])         # after the table
   expect_identical(at(1900, 2050), lookup_table[last_age, last_period])   # after it, and too old
 })
+
+# ---- the bulk lookup along one lifeline -------------------------------------------------------------
+
+# The engine's lookup: one birth, many instants, in the active tier. It keeps a run of cohort blends
+# and refills when an instant falls outside them, so the cases below are chosen to make it refill.
+series <- function(b, t) {
+  cpp_table_log_mu_series(lookup_table, x0_clicks, t0_clicks, as.integer(b), as.integer(t))
+}
+
+expect_series_matches <- function(b, t) {
+  expect_within_ulps(series(b, t), lookup(b, t))
+}
+
+test_that("the bulk lookup agrees with the single lookup along a lifeline", {
+  monthly <- as.integer(2014.3 * clicks_per_year + 0:59 * (clicks_per_year %/% 12))
+  set.seed(5)
+  for (b in as.integer(stats::runif(20, 1940, 1965) * clicks_per_year)) {
+    expect_series_matches(b, monthly)
+  }
+
+  # One instant, and a whole cohort and period, where both weights are zero.
+  expect_series_matches(1950L * clicks_per_year, 2015L * clicks_per_year)
+  expect_identical(series(1950L * clicks_per_year, integer()), numeric())
+})
+
+test_that("the bulk lookup clamps at every edge of the table", {
+  # Across the start and the end of the periods, and from below the youngest age to above the oldest.
+  crossing_periods <- as.integer(seq(2006, 2026, by = 0.25) * clicks_per_year)
+  expect_series_matches(1952.4 * clicks_per_year, crossing_periods)
+  expect_series_matches(1962.7 * clicks_per_year, crossing_periods)   # too young early on
+  expect_series_matches(1903.1 * clicks_per_year, crossing_periods)   # too old throughout
+  expect_series_matches(1991.5 * clicks_per_year, crossing_periods)   # too young throughout
+})
+
+test_that("the bulk lookup refills for long lifelines and instants out of order", {
+  # Sixty years at monthly steps spans more periods than the lookup holds blends for.
+  long <- as.integer(1990 * clicks_per_year + 0:719 * (clicks_per_year %/% 12))
+  expect_series_matches(1945.6 * clicks_per_year, long)
+
+  # Backwards, and shuffled: every instant whose periods are not held forces a refill.
+  expect_series_matches(1945.6 * clicks_per_year, rev(long))
+  set.seed(9)
+  expect_series_matches(1945.6 * clicks_per_year, sample(long))
+})

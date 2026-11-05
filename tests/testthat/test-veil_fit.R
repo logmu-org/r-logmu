@@ -764,3 +764,110 @@ test_that("a duration-valued term is checked rather than refused", {
   expect_true(checked$off_diagonals_omitted)
   expect_identical(checked$term_count, 2L)
 })
+
+# ---- several fits at once -----------------------------------------------------------------------
+#
+# `cpp_veil_fit_runs` iterates several fits together, walking the data once per round for every fit
+# still going. THE ORACLE IS `cpp_veil_fit_run` ON EACH FIT ALONE, to the bit: sharing a walk is
+# scheduling, so any difference at all is a defect. The mix is chosen so that the fits finish in
+# different rounds and for different reasons -- one damped, one slow, one refused at the first
+# factorisation, one out of budget -- which is what makes rounds in which only some of the blocks
+# are walked actually happen.
+
+fit_spec <- function(terms = list(it_ast(~ 1)), mortality = it_obj(constant_mortality),
+                     weight = it_ast(~ .i$amount), include = NULL,
+                     start = rep(0, length(terms)), max_iterations = 25L, tolerance = 1e-6,
+                     armijo = 1e-4, max_halvings = 30, overdispersion = no_overdispersion,
+                     z_scale = 1, disjoint = FALSE) {
+  list(mortality = mortality, terms = terms, weight = weight, include = include,
+       start = as.double(start), max_iterations = as.integer(max_iterations),
+       tolerance = tolerance, armijo = armijo, max_halvings = max_halvings,
+       overdispersion = overdispersion, z_scale = z_scale, disjoint = disjoint)
+}
+
+fit_alone <- function(spec, columns = cols, threads = 1L) {
+  do.call(fit_run, c(spec, list(columns = columns, threads = threads)))
+}
+
+mixed_fits <- list(
+  converges = fit_spec(),
+  damped    = fit_spec(start = -5),
+  slow      = fit_spec(start = 8),
+  two_terms = fit_spec(terms = list(it_ast(~ 1), it_ast(~ .i$male))),
+  broken    = fit_spec(terms = list(it_ast(~ 1), it_ast(~ 1))),
+  starved   = fit_spec(start = 6, max_iterations = 1L),
+  scaled    = fit_spec(weight = it_ast(~ .i$male), overdispersion = 2, z_scale = 1.7),
+  included  = fit_spec(include = include(.i$male))
+)
+
+# Enough records for several chunks, so that blocks and chunks really are interleaved across the
+# pool rather than one chunk per block.
+many_cols <- lapply(cols, function(column) rep(column, length.out = 25002L))
+many_cols$E2R_start <- datey_clicks(rep(start_clicks, length.out = 25002L))
+many_cols$E2R_end <- datey_clicks(rep(end_clicks, length.out = 25002L))
+
+test_that("fits run together are each bit-identical to the same fit run alone", {
+  together <- cpp_veil_fit_runs(unname(mixed_fits), cols, quarter_scale, 1L)
+
+  expect_length(together, length(mixed_fits))
+  for (at in seq_along(mixed_fits)) {
+    expect_identical(together[[at]], fit_alone(mixed_fits[[at]]), info = names(mixed_fits)[[at]])
+  }
+
+  # The mix really does finish in different rounds for different reasons, or the identity above
+  # never saw a round with a finished fit in it.
+  statuses <- vapply(together, function(run) run$status, character(1L))
+  expect_true(all(c("converged", "not_identifiable", "did_not_converge") %in% statuses))
+  walks <- vapply(together, function(run) run$evaluations, integer(1L))
+  expect_gt(length(unique(walks)), 3L)
+})
+
+test_that("over several chunks, neither sharing nor the thread count moves a digit", {
+  alone <- lapply(mixed_fits, fit_alone, columns = many_cols)
+
+  for (threads in c(1L, 4L, 0L)) {
+    together <- cpp_veil_fit_runs(unname(mixed_fits), many_cols, quarter_scale, threads)
+    for (at in seq_along(mixed_fits)) {
+      expect_identical(together[[at]], alone[[at]],
+                       info = sprintf("%s at %d threads", names(mixed_fits)[[at]], threads))
+    }
+  }
+})
+
+test_that("the order of the fits changes nothing but the order of the answers", {
+  forwards <- cpp_veil_fit_runs(unname(mixed_fits), cols, quarter_scale, 1L)
+  backwards <- cpp_veil_fit_runs(rev(unname(mixed_fits)), cols, quarter_scale, 1L)
+  expect_identical(rev(backwards), forwards)
+})
+
+test_that("no fits is no answers, and an incomplete fit is refused by position", {
+  expect_identical(cpp_veil_fit_runs(list(), cols, quarter_scale, 1L), list())
+
+  incomplete <- fit_spec()
+  incomplete$z_scale <- NULL
+  expect_error(cpp_veil_fit_runs(list(fit_spec(), incomplete), cols, quarter_scale, 1L),
+               "Fit 2 has no `z_scale`")
+})
+
+test_that("a bad fit anywhere in the list is refused before any is run", {
+  expect_error(
+    cpp_veil_fit_runs(list(fit_spec(), fit_spec(armijo = 0.5)), cols, quarter_scale, 1L),
+    "strictly between 0 and 0.5"
+  )
+  expect_error(
+    cpp_veil_fit_runs(list(fit_spec(), fit_spec(max_iterations = 0L)), cols, quarter_scale, 1L),
+    "at least one"
+  )
+})
+
+test_that("a step is tried at full length and then halved at most max_halvings times", {
+  # From far below the optimum the first step overshoots so badly that no halving within a small
+  # budget rescues it, so the fit collapses -- and the walks count exactly what was tried: one for
+  # the starting point, the full step, and then one per halving. `max_halvings = 0` is the full step
+  # alone.
+  for (halvings in 0:3) {
+    res <- fit_run(start = -8, max_halvings = halvings)
+    expect_identical(res$status, "step_collapsed", info = halvings)
+    expect_identical(res$evaluations, as.integer(halvings) + 2L, info = halvings)
+  }
+})

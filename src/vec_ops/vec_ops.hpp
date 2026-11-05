@@ -42,6 +42,23 @@ namespace tier
 // length type straight in.
 using vec_size = std::ptrdiff_t;
 
+// An annual age-period table of log mu as the lookup reads it: `tx` order, periods first, then
+// ages, with the instant and age of the first cell in clicks. A view: it owns nothing.
+struct annual_log_mu_table
+{
+  const double* log_mu;
+  int period_count;
+  int age_count;
+  int t0_clicks;
+  int x0_clicks;
+};
+
+// log mu for one birth at n instants, through `mortality::interpolatedLogMuSeries`. In the tiers
+// because the lookup's multiply-adds fuse only where the translation unit has FMA, and that was
+// measured to matter about as much as blending each cohort once does.
+#define DECLARE_TABLE_LOOKUP \
+void table_log_mu_SV_V(vec_size, const annual_log_mu_table&, int, const int*, double*);
+
 #define DECLARE_WRAPPER1(NAME) \
 void NAME##_V_V(vec_size, const double*, double*);
 
@@ -79,6 +96,8 @@ namespace NS                                                   \
   DECLARE_WRAPPER2(max)                                        \
 \
   void clamp_VSS_V(vec_size, const double*, double, double, double*);\
+\
+  DECLARE_TABLE_LOOKUP                                         \
 }
 
 DECLARE_TIER(baseline)
@@ -111,6 +130,8 @@ DECLARE_WRAPPER2(min)
 DECLARE_WRAPPER2(max)
 
 void clamp_VSS_V(vec_size, const double*, double, double, double*);
+
+DECLARE_TABLE_LOOKUP
 
 } // namespace tier
 

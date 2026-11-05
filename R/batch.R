@@ -12,7 +12,9 @@
 # a user with a namespace conflict writes `logmu::aev(...)` and means the same
 # thing.
 batch_operations <- function() {
-  list(aev = list(definition = aev, plan = batch_plan_aev))
+  list(aev = list(definition = aev, plan = batch_plan_aev),
+       fit = list(definition = fit, plan = batch_plan_fit),
+       compare_models = list(definition = compare_models, plan = batch_plan_compare_models))
 }
 
 # The arguments a batch may supply on an operation's behalf. Each is the dotted
@@ -24,15 +26,26 @@ batch_operations <- function() {
 # it cannot change an answer (reduction is per chunk, not per thread), and once
 # several operations' specifications share one crossing there is a single pool
 # and no per-operation meaning left.
+#
+# A default an analysis has no use for is simply not read: `.breakdown` means
+# nothing to a fit and `.test_mortality` nothing to an A/E, so one batch can
+# hold both without either refusing the other's settings.
 batch_defaulted_arguments <- c("exp_data", "include", "weight", "val_relevance",
-                               "val_distance", "breakdown", "settings",
-                               "overdispersion", "time_scale")
+                               "val_distance", "breakdown", "test_mortality", "Z",
+                               "settings", "overdispersion", "time_scale",
+                               "L_tolerance", "armijo", "max_iterations",
+                               "max_halvings")
 
-# `val_relevance` and `val_distance` are two spellings of ONE quantity, so an
-# analysis naming either of them has said its piece and NEITHER default applies.
-# Injected argument by argument they would combine into the pair that is
-# refused, which is a confusing way to be told that a default exists.
-batch_paired_arguments <- c("val_relevance", "val_distance")
+# PAIRS THAT ARE ONE QUANTITY SAID TWO WAYS, so an analysis naming either half
+# has said its piece and NEITHER default applies. Injected argument by argument
+# they would combine into the pair that is refused, which is a confusing way to
+# be told that a default exists.
+#
+# `val_relevance` and `val_distance` are two spellings of the second weighting
+# factor. `test_mortality` and `Z` are the yardstick and the number it would be
+# used to work out.
+batch_paired_arguments <- list(c("val_relevance", "val_distance"),
+                               c("test_mortality", "Z"))
 
 #' Run several analyses over one dataset in a single pass
 #'
@@ -69,17 +82,38 @@ batch_paired_arguments <- c("val_relevance", "val_distance")
 #' `time_scale`, which is worth doing to see whether the integration interval
 #' moves the answer; a batch then makes one pass per distinct scale.
 #'
-#' @param ... Named calls to **logmu** analyses, currently [aev()]. Each name
-#'   becomes a name in the result and may not begin with a dot.
-#' @param .exp_data,.include,.weight,.val_relevance,.val_distance,.breakdown,.settings,.overdispersion,.time_scale
+#' @section Fits in a batch:
+#' [fit()] and [compare_models()] may be batched alongside [aev()]. The pass
+#' each makes over the population, for \eqn{Z} and the figures its header
+#' reports, joins the batch's shared pass. Once that pass is over, every model
+#' in the batch -- each fit's, and each candidate of each comparison -- is
+#' fitted together: each iteration's walk of the data serves every model still
+#' iterating, and each converges on its own. The answers are exactly those of
+#' the same calls made alone; only the time taken changes.
+#'
+#' **A fit that fails does not stop the batch.** Where a lone `fit()` would
+#' raise an error because the model is not identifiable or did not converge,
+#' its element holds that error instead -- a condition of class `fit_failure`,
+#' carrying the message and the engine's `status` -- and one warning names
+#' every element that failed. `stop()` on the element raises the error exactly
+#' as the lone call would have. Anything else that goes wrong, such as a
+#' malformed argument or an interrupt, still stops the whole batch.
+#'
+#' @param ... Named calls to **logmu** analyses: [aev()], [fit()] or
+#'   [compare_models()]. Each name becomes a name in the result and may not
+#'   begin with a dot.
+#' @param .exp_data,.include,.weight,.val_relevance,.val_distance,.breakdown,.test_mortality,.Z,.settings,.overdispersion,.time_scale,.L_tolerance,.armijo,.max_iterations,.max_halvings
 #'   Defaults for the analyses, each standing in for the argument of the same
-#'   name wherever an analysis does not supply its own. `.val_relevance` and
-#'   `.val_distance` are two spellings of one quantity, so only one may be given
-#'   and an analysis naming either of them takes neither default.
+#'   name wherever an analysis does not supply its own, and ignored by an
+#'   analysis that has no such argument. `.val_relevance` and `.val_distance`
+#'   are two spellings of one quantity, as `.test_mortality` and `.Z` are two
+#'   ways of setting one scale, so only one of each pair may be given, and an
+#'   analysis naming either half of a pair takes neither default.
 #' @param .threads Worker threads for the whole batch. `0` asks for as many as
 #'   the machine reports.
 #' @returns A named list holding each analysis's own result, in the order
-#'   written. Nothing else -- no class, no attributes.
+#'   written, or a `fit_failure` condition for a fit that failed. Nothing else
+#'   -- no class, no attributes.
 #' @examples
 #' data <- exp_data(
 #'   list(
@@ -112,18 +146,20 @@ batch <- function(...,
                   .val_relevance = NULL,
                   .val_distance = NULL,
                   .breakdown = NULL,
+                  .test_mortality = NULL,
+                  .Z = NULL,
                   .settings = NULL,
                   .overdispersion = NULL,
                   .time_scale = NULL,
+                  .L_tolerance = NULL,
+                  .armijo = NULL,
+                  .max_iterations = NULL,
+                  .max_halvings = NULL,
                   .threads = cpp_veil_default_threads()) {
 
   caller <- parent.frame()
   elements <- as.list(substitute(list(...)))[-1L]
   element_names <- batch_element_names(elements)
-
-  if (!is.null(substitute(.val_relevance)) && !is.null(substitute(.val_distance))) {
-    stop("Give either `.val_relevance` or `.val_distance`, not both.", call. = FALSE)
-  }
 
   # THE DEFAULTS TRAVEL AS EXPRESSIONS, not values. A weight is a pronoun
   # expression, so it must reach `it_capture()` unevaluated and be captured in
@@ -133,13 +169,26 @@ batch <- function(...,
     exp_data       = substitute(.exp_data),
     include        = substitute(.include),
     weight         = substitute(.weight),
-    val_relevance = substitute(.val_relevance),
+    val_relevance  = substitute(.val_relevance),
     val_distance   = substitute(.val_distance),
     breakdown      = substitute(.breakdown),
+    test_mortality = substitute(.test_mortality),
+    Z              = substitute(.Z),
     settings       = substitute(.settings),
     overdispersion = substitute(.overdispersion),
-    time_scale     = substitute(.time_scale)
+    time_scale     = substitute(.time_scale),
+    L_tolerance    = substitute(.L_tolerance),
+    armijo         = substitute(.armijo),
+    max_iterations = substitute(.max_iterations),
+    max_halvings   = substitute(.max_halvings)
   )
+
+  for (pair in batch_paired_arguments) {
+    if (!is.null(defaults[[pair[[1L]]]]) && !is.null(defaults[[pair[[2L]]]])) {
+      stop(sprintf("Give either `.%s` or `.%s`, not both.", pair[[1L]], pair[[2L]]),
+           call. = FALSE)
+    }
+  }
 
   planned <- lapply(seq_along(elements), function(i) {
     batch_plan_element(elements[[i]], element_names[[i]], element_names,
@@ -226,7 +275,7 @@ batch_plan_element <- function(expr, name, all_names, defaults, caller) {
   # NO ELEMENT MAY SEE ANOTHER'S RESULT. `batch()` binds nothing, so a mention
   # of a sibling would resolve in the caller's frame -- erroring when nothing is
   # there, and silently using a stale object of that name when something is.
-  mentioned <- intersect(all.vars(expr), all_names)
+  mentioned <- intersect(batch_mentioned_names(expr), all_names)
   if (length(mentioned) > 0L) {
     stop("`", name, "` refers to ", paste0("`", mentioned, "`", collapse = ", "),
          ", which is another analysis in the same `batch()`. No analysis in a ",
@@ -236,17 +285,62 @@ batch_plan_element <- function(expr, name, all_names, defaults, caller) {
 
   given <- as.list(match.call(definition = operation$definition, call = expr))[-1L]
 
-  paired <- vapply(batch_paired_arguments, function(argument) !is.null(given[[argument]]),
-                   logical(1L))
+  # Asked before anything is injected, so that a default cannot make an
+  # analysis look as though it had named half of a pair itself.
+  pair_named <- function(argument) {
+    for (pair in batch_paired_arguments) {
+      if (argument %in% pair) {
+        return(any(vapply(pair, function(half) !is.null(given[[half]]), logical(1L))))
+      }
+    }
+    FALSE
+  }
+  skipped <- vapply(batch_defaulted_arguments, pair_named, logical(1L))
 
-  for (argument in batch_defaulted_arguments) {
-    if (argument %in% batch_paired_arguments && any(paired)) next
+  for (argument in batch_defaulted_arguments[!skipped]) {
     if (is.null(given[[argument]]) && !is.null(defaults[[argument]])) {
       given[[argument]] <- defaults[[argument]]
     }
   }
 
   operation$plan(given, caller, name)
+}
+
+# The symbols an element's expression could resolve in the caller's frame.
+#
+# NOT `all.vars()`, which also returns the field after a `$`. So `.i$group`
+# mentions `group`, and an element named after a column it reads -- a natural
+# thing to call a fit by group -- was refused as though it used a sibling's
+# result. What follows a `$` or an `@` is a name inside an object, never a
+# variable, so only the object before it is walked. A function's own name is
+# left out, as `all.vars()` leaves it out.
+batch_mentioned_names <- function(expr) {
+  if (is.symbol(expr)) return(as.character(expr))
+  if (!is.call(expr)) return(character())
+
+  head <- expr[[1L]]
+  if (identical(head, quote(`$`)) || identical(head, quote(`@`))) {
+    return(batch_mentioned_names(expr[[2L]]))
+  }
+  # `logmu::fit` names a function in a namespace, not two variables.
+  if (identical(head, quote(`::`)) || identical(head, quote(`:::`))) {
+    return(character())
+  }
+
+  parts <- as.list(expr)[-1L]
+  if (is.call(head)) parts <- c(list(head), parts)
+  unique(unlist(lapply(parts, batch_mentioned_names), use.names = FALSE))
+}
+
+# The engine and the front ends refuse both halves of a pair too, and must,
+# since they guard every caller. This one exists to name the analysis, which
+# they cannot: a batch of a dozen would otherwise report the fault without
+# saying whose it is.
+batch_refuse_both <- function(given, name, pair, why) {
+  if (!is.null(given[[pair[[1L]]]]) && !is.null(given[[pair[[2L]]]])) {
+    stop("`", name, "` gives both `", pair[[1L]], "` and `", pair[[2L]], "`. ", why,
+         call. = FALSE)
+  }
 }
 
 # `aev()`'s half of the protocol: turn the resolved argument expressions into
@@ -272,13 +366,8 @@ batch_plan_aev <- function(given, caller, name) {
     stop("`", name, "` has no `mortality`, which is required.", call. = FALSE)
   }
 
-  # The engine refuses this pair too, and must, since it guards every front end.
-  # This one exists to name the analysis, which the engine cannot: a batch of a
-  # dozen would otherwise report the fault without saying whose it is.
-  if (!is.null(given[["val_relevance"]]) && !is.null(given[["val_distance"]])) {
-    stop("`", name, "` gives both `val_relevance` and `val_distance`. They are ",
-         "two spellings of one quantity, so give either, not both.", call. = FALSE)
-  }
+  batch_refuse_both(given, name, c("val_relevance", "val_distance"),
+                    "They are two spellings of one quantity, so give either, not both.")
 
   resolved <- resolve_settings(value("settings"), value("overdispersion"),
                                value("time_scale"))
@@ -290,6 +379,96 @@ batch_plan_aev <- function(given, caller, name) {
                                  ast("val_relevance"), ast("val_distance"),
                                  value("include"), value("breakdown"),
                                  resolved$overdispersion)
+  )
+}
+
+# `fit()`'s half of the protocol, and `compare_models()`'s below it. Both take
+# the same arguments apart from the model, so what they share is resolved here,
+# in the order the lone calls resolve it, and each planner adds its own.
+batch_fitting_inputs <- function(given, caller, name) {
+  value <- function(argument) {
+    if (is.null(given[[argument]])) NULL else eval(given[[argument]], caller)
+  }
+  ast <- function(argument) {
+    if (is.null(given[[argument]])) NULL else it_capture(given[[argument]], caller)
+  }
+
+  exp_data <- value("exp_data")
+  if (is.null(exp_data)) {
+    stop("`", name, "` has no `exp_data`. Give it in the call, or once as ",
+         "`.exp_data` for the whole batch.", call. = FALSE)
+  }
+  ensure_is_exp_data(exp_data)
+
+  batch_refuse_both(given, name, c("val_relevance", "val_distance"),
+                    "They are two spellings of one quantity, so give either, not both.")
+  batch_refuse_both(given, name, c("test_mortality", "Z"),
+                    "`Z` is the number a test mortality would be used to work out, so give either, not both.")
+
+  list(
+    value = value,
+    exp_data = exp_data,
+    resolved = resolve_settings(value("settings"), value("overdispersion"),
+                                value("time_scale")),
+    weight_ast = ast("weight"),
+    relevance_ast = ast("val_relevance"),
+    distance_ast = ast("val_distance"),
+    test = fit_test_mortality(given[["test_mortality"]], is.null(given[["test_mortality"]]),
+                              value("Z"), caller),
+    test_expr = given[["test_mortality"]],
+    include = value("include"),
+    include_expr = given[["include"]],
+    Z = value("Z"),
+
+    # THE SIGNATURE'S OWN DEFAULTS where the analysis and the batch are both
+    # silent, named once in `fit.R` so that the two cannot drift apart.
+    method = function(start) {
+      fit_method(start,
+                 value("L_tolerance") %||% default_L_tolerance,
+                 value("armijo") %||% default_armijo,
+                 value("max_iterations") %||% default_max_iterations,
+                 value("max_halvings") %||% default_max_halvings)
+    }
+  )
+}
+
+batch_plan_fit <- function(given, caller, name) {
+  if (is.null(given[["model"]])) {
+    stop("`", name, "` has no `model`, which is required.", call. = FALSE)
+  }
+  model <- eval(given[["model"]], caller)
+  ensure_is_model(model)
+
+  inputs <- batch_fitting_inputs(given, caller, name)
+
+  list(
+    exp_data          = inputs$exp_data,
+    time_scale_clicks = inputs$resolved$time_scale_clicks,
+    plan              = fit_plan(model, inputs$include, inputs$include_expr,
+                                 inputs$weight_ast, inputs$relevance_ast,
+                                 inputs$distance_ast, inputs$test, inputs$test_expr,
+                                 inputs$Z, inputs$resolved,
+                                 inputs$method(inputs$value("start")))
+  )
+}
+
+batch_plan_compare_models <- function(given, caller, name) {
+  if (is.null(given[["models"]])) {
+    stop("`", name, "` has no `models`, which is required.", call. = FALSE)
+  }
+  models <- eval(given[["models"]], caller)
+  labels <- comparison_labels(models)
+
+  inputs <- batch_fitting_inputs(given, caller, name)
+
+  list(
+    exp_data          = inputs$exp_data,
+    time_scale_clicks = inputs$resolved$time_scale_clicks,
+    plan              = comparison_plan(models, labels, inputs$include,
+                                        inputs$include_expr, inputs$weight_ast,
+                                        inputs$relevance_ast, inputs$distance_ast,
+                                        inputs$test, inputs$test_expr, inputs$Z,
+                                        inputs$resolved, inputs$method(NULL))
   )
 }
 
@@ -312,24 +491,41 @@ batch_run <- function(planned, element_names, threads) {
   columns <- exp_data_columns(exp_data)
   scales <- unlist(lapply(planned, function(one) one$time_scale_clicks))
 
+  # Each group is run by `run_plans()`, the runner a lone analysis uses too:
+  # one crossing for every specification in the group, then every fit in the
+  # group together, sharing each walk of the data.
+  #
+  # A FAILED FIT IS HELD, NOT RAISED, and only a failed fit. One model that
+  # will not converge must not take every other result in the batch with it,
+  # so its `fit_failure` becomes its element. Any other error still stops the
+  # batch: an interrupt has to, and a malformed argument is the user's to fix
+  # before anything is worth keeping.
   results <- vector("list", length(planned))
   for (scale in unique(scales)) {
     group <- which(scales == scale)
-    specs <- unlist(lapply(planned[group], function(one) one$plan$specs),
-                    recursive = FALSE)
-
-    run <- cpp_veil_run(specs, columns, scale, FALSE, threads)
-
-    # The specifications went in group order, so they come back in it. Each
-    # analysis takes as many as it asked for and finalises them itself.
-    taken <- 0L
-    for (i in group) {
-      wanted <- length(planned[[i]]$plan$specs)
-      results[[i]] <- planned[[i]]$plan$finalise(run$results[taken + seq_len(wanted)])
-      taken <- taken + wanted
-    }
+    results[group] <- run_plans(lapply(planned[group], function(one) one$plan),
+                                columns, scale, threads, hold_failures = TRUE)
   }
 
   names(results) <- element_names
+  batch_warn_failures(results)
   results
+}
+
+# WARNED ABOUT ONCE, NAMING THE ELEMENTS, for the reason `compare_models()`
+# gives about its candidates: a result silently replaced by an error is how
+# somebody comes to believe they have ten fits when they have nine.
+batch_warn_failures <- function(results) {
+  failed <- vapply(results, inherits, logical(1L), what = "fit_failure")
+  if (!any(failed)) return(invisible(NULL))
+
+  statuses <- vapply(results[failed], function(failure) failure$status, character(1L))
+  warning(sprintf(paste0("%d of %d analys%s in the batch could not be fitted: %s. ",
+                         "Each holds the error it would have raised alone, and ",
+                         "`stop()` on it raises that error."),
+                  sum(failed), length(results),
+                  if (length(results) == 1L) "is" else "es",
+                  paste(sprintf("`%s` (%s)", names(results)[failed], statuses),
+                        collapse = ", ")),
+          call. = FALSE)
 }

@@ -13,6 +13,7 @@
 #include <eve/wide.hpp>
 #include <eve/module/core.hpp>
 #include <eve/module/math.hpp>
+#include "mortality/lookup_log_mu.hpp" // internal linkage, so each tier compiles its own copy
 
 namespace tier
 {
@@ -171,6 +172,14 @@ DEFINE_WRAPPER2(div)                                           \
 DEFINE_WRAPPER2(min)                                           \
 DEFINE_WRAPPER2(max)                                           \
 \
-void clamp_VSS_V(vec_size n, const double* arg0, double arg1, double arg2, double* result){ ::tier::VSS_V(n,arg0,arg1,arg2,result,eve::clamp); }
+void clamp_VSS_V(vec_size n, const double* arg0, double arg1, double arg2, double* result){ ::tier::VSS_V(n,arg0,arg1,arg2,result,eve::clamp); } \
+\
+void table_log_mu_SV_V(vec_size n, const annual_log_mu_table& table, int b_clicks, const int* t_clicks, double* result) \
+{                                                              \
+  ::mortality::interpolatedLogMuSeries(                        \
+    table.log_mu, table.period_count, table.age_count,         \
+    table.t0_clicks, table.x0_clicks,                          \
+    b_clicks, n, t_clicks, result);                            \
+}
 
 #endif // VEC_KERNEL_HPP

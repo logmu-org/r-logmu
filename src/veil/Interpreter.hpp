@@ -543,14 +543,10 @@ private:
                 const MortalityTable& table = this->block.tableAt(instruction.parameter);
                 const int64_t birth = this->clicksAt(instruction.args[0]);
 
-                // Read at the sample point in CLICKS. The lookup does its own integer arithmetic to
+                // Read at the sample points in CLICKS. The lookup does its own integer arithmetic to
                 // find the surrounding lattice points and the weights between them, so handing it
                 // years would round twice and shift the interpolation.
-                for (int slot = first; slot < slots; ++slot)
-                {
-                    out[static_cast<size_t>(slot)] =
-                        logMuAt(table, birth, this->grid.clicksAt(slot));
-                }
+                logMuAlongGrid(table, birth, this->grid, first, slots, this->instantClicks, out.data());
                 return;
             }
 
@@ -871,6 +867,11 @@ private:
 
     TimeGrid grid;
     size_t slotsFilled = 0;
+
+    // The sample points of one individual narrowed to `int`, which is what the table lookup reads.
+    // Scratch for `Op::VectorLogMu`, kept here so that it settles at the longest lifeline rather
+    // than being allocated per individual.
+    std::vector<int> instantClicks;
 };
 
 } // namespace veil

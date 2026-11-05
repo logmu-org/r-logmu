@@ -28,6 +28,8 @@ using SVV_V_t = void (*)(vec_size,       double , const double*, const double*, 
 using SVS_V_t = void (*)(vec_size,       double , const double*,       double , double*);
 using SSV_V_t = void (*)(vec_size,       double ,       double , const double*, double*);
 
+using table_SV_V_t = void (*)(vec_size, const annual_log_mu_table&, int, const int*, double*);
+
 struct tier_table
 {
   const char* name;
@@ -42,6 +44,8 @@ struct tier_table
   SV_V_t add_SV_V, sub_SV_V, mul_SV_V, div_SV_V, max_SV_V, min_SV_V;
 
   VSS_V_t clamp_VSS_V;
+
+  table_SV_V_t table_log_mu_SV_V;
 };
 
 #define LOGMU_TIER_TABLE(NS)  \
@@ -53,6 +57,7 @@ struct tier_table
   , &NS::add_VS_V, &NS::sub_VS_V, &NS::mul_VS_V, &NS::div_VS_V, &NS::max_VS_V, &NS::min_VS_V \
   , &NS::add_SV_V, &NS::sub_SV_V, &NS::mul_SV_V, &NS::div_SV_V, &NS::max_SV_V, &NS::min_SV_V \
   , &NS::clamp_VSS_V \
+  , &NS::table_log_mu_SV_V \
 }
 
 #if IS_X86_TARGET && (defined(__GNUC__) || defined(__clang__))
@@ -175,5 +180,10 @@ void NAME##_SSV_V(vec_size n,       double  a0,       double  a1, const double* 
 
 void clamp_VSS_V(vec_size n, const double* a0,       double  a1,       double  a2, double* r) { T.clamp_VSS_V(n, a0, a1, a2, r); } \
 //DEFINE_WRAPPER3(clamp)
+
+void table_log_mu_SV_V(vec_size n, const annual_log_mu_table& table, int b_clicks, const int* t_clicks, double* r)
+{
+  T.table_log_mu_SV_V(n, table, b_clicks, t_clicks, r);
+}
 
 } // namespace tier
