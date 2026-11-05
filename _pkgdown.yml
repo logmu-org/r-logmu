@@ -145,6 +145,7 @@ reference:
   - fit
   - compare_models
   - diagnose
+  - measure_overdispersion
   - simulate
 - title: Running several analyses at once
   contents:
