@@ -2,16 +2,16 @@
 % Please edit documentation in R/data.R
 \name{as_at}
 \alias{as_at}
-\title{Get the 'as at date' of a \code{val_data}}
+\title{Get the as-at date of a \code{val_data} or a \code{base_table}}
 \usage{
-as_at(val_data)
+as_at(x)
 }
 \arguments{
-\item{val_data}{The valuation data.}
+\item{x}{A \code{val_data} or a \code{\link[=base_table]{base_table()}}.}
 }
 \value{
 A scalar \code{datey}.
 }
 \description{
-Gets the 'as at' date of a valuation data.
+Gets the as-at date of a valuation data or of a \code{\link[=base_table]{base_table()}}.
 }

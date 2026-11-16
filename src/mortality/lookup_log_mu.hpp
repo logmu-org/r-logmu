@@ -36,7 +36,7 @@
 //
 // AN INDEX PAST THE END IS CLAMPED to the edge of the table, age and period independently. An
 // individual older than the table's last age is read at that last age rather than refused, which is
-// consistent with `end_age` being a check the caller makes rather than an input here.
+// consistent with `terminal_age` being a check the caller makes rather than an input here.
 
 #include <algorithm>
 #include <cstddef>

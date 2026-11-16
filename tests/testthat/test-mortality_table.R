@@ -68,7 +68,7 @@ test_that("simple test of mortality_table", {
   table_log_mu <- mortality_table(x0, t0, log_mu = log_mu)
 
   strip <- function(x) {
-    attr(x, "end_age") <- NULL
+    attr(x, "terminal_age") <- NULL
     x
   }
 

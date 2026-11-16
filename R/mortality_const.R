@@ -80,3 +80,7 @@ log_mu.mortality_const <- function(x, .i, .t) {
   rep_len(unclass(x), max(length(.b), length(.t)))
 }
 
+#' @rdname mortality
+#' @export
+terminal.mortality_const <- function(x, .i) no_terminal(.i)
+

@@ -70,3 +70,23 @@ print.mortality_expr <- function(x, ...) {
 log_mu.mortality_expr <- function(x, .i, .t) {
   it_eval(x$ast, .i, .t, obj_fn = function(o, .i, .t) log_mu(o, .i, .t))
 }
+
+# Only an expression whose every mortality has no terminal age is handled so
+# far. One that refers to a table needs the expression walked -- a select
+# takes its branch's terminal date, arithmetic the earlier of those it reads --
+# and that belongs with the base and projection tables.
+#' @rdname mortality
+#' @export
+terminal.mortality_expr <- function(x, .i) {
+  result <- no_terminal(.i)
+  for (leaf in it_obj_leaves(x$ast)) {
+    if (!identical(terminal(leaf, .i), result)) {
+      stop(
+        "`terminal()` does not yet support a `mortality` expression that ",
+        "refers to a mortality with a terminal age, such as a `mortality_table`.",
+        call. = FALSE
+      )
+    }
+  }
+  result
+}

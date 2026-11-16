@@ -60,7 +60,7 @@ test_that("a mortality_const lowers to a double literal", {
 
 test_that("a mortality_table lowers to vector_log_mu(table, birth)", {
   log_mu <- matrix(log(c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06)), nrow = 3, ncol = 2)
-  tbl <- mortality_table(x0 = 60, t0 = 2010, log_mu = log_mu)
+  tbl <- mortality_table(x_start = 60, t_start = 2010, log_mu = log_mu)
 
   res <- cpp_veil_ingest_ast(it_obj(tbl), cols)
 
@@ -79,7 +79,7 @@ test_that("a mortality_table's log_mu keeps its orientation", {
   # The core indexes log_mu[age + period * age_count], which is R's own column-major order. If the
   # two ever disagree the table is silently transposed, so compare the values directly.
   log_mu <- matrix(c(-4.6, -4.5, -4.4, -4.3, -4.2, -4.1), nrow = 3, ncol = 2)
-  tbl <- mortality_table(x0 = 60, t0 = 2010, log_mu = log_mu)
+  tbl <- mortality_table(x_start = 60, t_start = 2010, log_mu = log_mu)
 
   obj <- cpp_veil_ingest_ast(it_obj(tbl), cols)$objs[[1]]
 

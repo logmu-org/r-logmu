@@ -301,7 +301,7 @@ test_that("a mortality table needs an exposure to be read over", {
   # this data carries no exposure for the time vector to be built from. The complaint names that,
   # rather than the table.
   log_mu <- matrix(seq(-5, -3, length.out = 12), nrow = 3, ncol = 4)
-  tbl <- mortality_table(x0 = 60, t0 = 2010, log_mu = log_mu)
+  tbl <- mortality_table(x_start = 60, t_start = 2010, log_mu = log_mu)
   expect_error(cpp_veil_eval(it_obj(tbl), cols), "no exposure was supplied")
 })
 

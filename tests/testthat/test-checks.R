@@ -53,7 +53,7 @@ test_that("the mortality constructors refuse a blank name", {
   # The exported path, so the guard is known to be wired in and not just to exist.
   expect_error(mortality_const(log_mu = -4, name = ""), "`name` must be a valid name")
   expect_error(gompertz_mortality(name = "men "), "`name` must be a valid name")
-  expect_error(mortality_table(x0 = datey::durationy(60), t0 = datey::datey(2000),
+  expect_error(mortality_table(x_start = datey::durationy(60), t_start = datey::datey(2000),
                                log_mu = matrix(-4, 2, 2), name = "  "),
                "`name` must be a valid name")
   expect_silent(mortality_const(log_mu = -4, name = "flat"))

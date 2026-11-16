@@ -4,12 +4,21 @@
 \alias{mortality_table}
 \title{Create an \code{mortality} from a 2D age-period matrix of annual mortality rates}
 \usage{
-mortality_table(x0, t0, q = NULL, mu = NULL, log_mu = NULL, name = NULL)
+mortality_table(
+  x_start,
+  t_start,
+  q = NULL,
+  mu = NULL,
+  log_mu = NULL,
+  name = NULL
+)
 }
 \arguments{
-\item{x0, t0}{The youngest age and earliest time respectively.
+\item{x_start, t_start}{The youngest age and earliest time respectively.
 For \eqn{q} rates, these are the \emph{middle} of the year covered by
-the youngest and earliest \eqn{q} rate, i.e. \eqn{\mu}{mu}-timing.}
+the youngest and earliest \eqn{q} rate, i.e. \eqn{\mu}{mu}-timing.
+Alternatively \code{x_start} can be a \code{\link[=base_table]{base_table()}}, in which case \code{t_start},
+\code{q}, \code{mu} and \code{log_mu} must not be given.}
 
 \item{q}{An age-period matrix of \eqn{q_{xt}}. It is required that
 \eqn{0 < q < 1}.}
@@ -21,7 +30,8 @@ the youngest and earliest \eqn{q} rate, i.e. \eqn{\mu}{mu}-timing.}
 \eqn{-\infty < \log\mu < +\infty}.}
 
 \item{name}{An optional name for this mortality, read back by \code{\link[=name]{name()}} and
-printed wherever the mortality appears.}
+printed wherever the mortality appears. From a \code{\link[=base_table]{base_table()}}, the default
+is the base table's own name.}
 }
 \value{
 A \code{mortality}.
@@ -31,13 +41,14 @@ Creates an age-period mortality table from a 2D age-period matrix of
 annual mortality rates that can be \eqn{q_{xt}}, \eqn{\mu_{xt}} or
 \eqn{\log\mu_{xt}}.
 
-The first age and period are determined by the \code{x0} and \code{t0} parameters
+The first age and period are determined by the \code{x_start} and \code{t_start} parameters
 respectively using \eqn{\mu}{mu}-timing. (See below for what this means for
 \eqn{q} rates.)
 
-The end age of the table is determined as the start age \code{x0}
-plus the number of age rows as years (plus another half year for
-\eqn{q} rates -- see below).
+The terminal age of the table, the age by which everyone is assumed to have
+died, is the start age \code{x_start} plus the number of age rows as years (plus
+another half year for \eqn{q} rates -- see below). Read it back with
+\code{\link[=terminal_age]{terminal_age()}}.
 
 The annual mortality rates must be provided as a 2D age-period matrix in one
 (and only one) of \code{q}, \code{mu} or \code{log_mu} as appropriate.
@@ -56,27 +67,34 @@ Important notes for \eqn{q} rates:
 \itemize{
 \item The definition of \eqn{q_{xt}}{q_xt} is \emph{centred} on \eqn{(x,t)}, i.e.
 
-\deqn{q_{xt} = 1 - \exp\left(-\int_{t-\frac{1}{2}}^{t+\frac{1}{2}}\mu_{x+\varepsilon,\, t+\varepsilon}\,\mathrm{d}\varepsilon\right)}{q_xt = 1 - exp(-integral from t-1/2 to t+1/2 of mu_(x+e, t+e) de)}
+\deqn{q_{xt} = 1 - \exp\left(-\int_{-\frac{1}{2}}^{+\frac{1}{2}}\mu_{x+\varepsilon,\, t+\varepsilon}\,\mathrm{d}\varepsilon\right)}{q_xt = 1 - exp(-integral from -1/2 to +1/2 of mu_(x+e, t+e) de)}
 }
 
 This differs from the normal convention whereby \eqn{q_{xt}}{q_xt} relates
 to the year from \eqn{(x,t)} to \eqn{(x+1,t+1)}.
 \itemize{
-\item The \code{x0} and \code{t0} parameters relate to the \emph{middle} of the year
+\item The \code{x_start} and \code{t_start} parameters relate to the \emph{middle} of the year
 covered by the youngest and earliest \eqn{q} rate.
-\item The end age of the resulting mortality table is the start age \code{x0}
+\item The terminal age of the resulting mortality table is the start age \code{x_start}
 plus the number of age rows as years \emph{plus an extra half year}.
 }
 \item The calculation of \eqn{\mu_{xt}} from \eqn{q_{xt}} includes an
 allowance for estimated convexity determined by examining the two
 neighbouring \eqn{q} rates
-(by cohort for the interior of the \code{annual_rates} and by age at its edges).
+(by cohort in the interior of \code{q},
+by age in its first and last periods, and
+not at all for its youngest and oldest ages,
+i.e. simply \eqn{\mu = -\log(1 - q)}{mu = -log(1 - q)}).
 This may produce artefacts if the rates are not smooth at an annual scale.
 \item A common convention when specifying \eqn{q}-based mortality tables is to
-include \eqn{q_\omega=1}, where \eqn{\omega} is the end age of the mortality
+include \eqn{q_\omega=1}, where \eqn{\omega} is the terminal age of the mortality
 table.
-\emph{Do not include a \eqn{q=1} age row in the \code{annual_rates} argument.}
+\emph{Do not include a \eqn{q=1} age row in the \code{q} argument.}
 (If you are creating the mortality from a base table and a projection then
 the \eqn{q_\omega=1} is likely in the base table.)
 }
+
+A \code{\link[=base_table]{base_table()}} can be turned into a mortality by passing it as the only
+argument, optionally with a \code{name}. The result is a table of one period at
+the base table's as-at date, so its log mu does not vary with time.
 }

@@ -29,7 +29,7 @@ test_that("a field and a fact comparison are time-invariant", {
 
 test_that("a mortality table is a time-varying vector", {
   log_mu <- matrix(log(c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06)), nrow = 3, ncol = 2)
-  tbl <- mortality_table(x0 = 60, t0 = 2010, log_mu = log_mu)
+  tbl <- mortality_table(x_start = 60, t_start = 2010, log_mu = log_mu)
   expect_true(root_vector(cpp_veil_prepare(it_obj(tbl), cols)))
 })
 

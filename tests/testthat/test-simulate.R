@@ -219,7 +219,7 @@ test_that("a mortality table simulates too", {
   # a population walked click by click needs.
   ages <- 0:120
   log_mu <- outer(-9 + 0.09 * ages, 0:9 * -0.01, `+`)
-  table <- mortality_table(x0 = 0, t0 = 2013, log_mu = log_mu)
+  table <- mortality_table(x_start = 0, t_start = 2013, log_mu = log_mu)
   lives <- population(3000)
   data <- simulate(table, seed = 2, lives = lives, exp_start = 2015, exp_end = 2020)
 

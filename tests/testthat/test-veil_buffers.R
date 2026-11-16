@@ -136,7 +136,7 @@ test_that("a real mortality table with a weight that varies over time still fits
   # weight over the grid, and the products for E and V. Seven vectors named, three needed at once.
   log_mu_value <- -3.2
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
 

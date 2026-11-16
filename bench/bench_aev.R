@@ -182,8 +182,8 @@ make_table <- function() {
   years <- 2010:2030
   log_mu <- outer(ages, years, function(x, t) -10.5 + 0.09 * x - 0.015 * (t - 2015))
   mortality_table(
-    x0 = datey::durationy(min(ages)),
-    t0 = datey::datey(min(years)),
+    x_start = datey::durationy(min(ages)),
+    t_start = datey::datey(min(years)),
     log_mu = log_mu,
     name = "bench_gompertz")
 }

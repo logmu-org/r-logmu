@@ -29,8 +29,10 @@ Imports:
     lifecycle,
     pillar (>= 1.9.0),
     stats
-Suggests: 
+Suggests:
+    forcats,
     knitr,
+    naxp,
     R6,
     rmarkdown,
     testthat (>= 3.0.0)

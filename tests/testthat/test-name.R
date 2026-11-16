@@ -30,7 +30,7 @@ group_data <- exp_data(
 test_that("name() reads the name every constructor stores", {
   expect_identical(name(mortality_const(log_mu = -4, name = "flat")), "flat")
   expect_identical(name(gompertz_mortality(name = "gomp")), "gomp")
-  expect_identical(name(mortality_table(x0 = datey::durationy(60), t0 = datey::datey(2000),
+  expect_identical(name(mortality_table(x_start = datey::durationy(60), t_start = datey::datey(2000),
                                         log_mu = matrix(-4, 2, 2), name = "tbl")), "tbl")
   expect_identical(name(model(reference, covariates(level = 1), name = "m")), "m")
   expect_null(name(reference))
@@ -266,7 +266,7 @@ test_that("mortalities print their name and a line about themselves", {
   gomp <- paste(capture.output(print(gompertz_mortality(name = "gomp"))), collapse = "\n")
   expect_match(gomp, "<mortality_expr: gomp> ", fixed = TRUE)
 
-  tbl <- mortality_table(x0 = datey::durationy(60), t0 = datey::datey(2000),
+  tbl <- mortality_table(x_start = datey::durationy(60), t_start = datey::datey(2000),
                          log_mu = matrix(-4, 3, 2), name = "tbl")
   printed <- paste(capture.output(print(tbl)), collapse = "\n")
   expect_match(printed, "<mortality_table: tbl> 3 ages from ", fixed = TRUE)

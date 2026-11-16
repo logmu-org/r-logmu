@@ -112,6 +112,9 @@ reference:
   - mortality
   - mortality_const
   - mortality_table
+  - base_table
+  - projection_table
+  - scaled
   - gompertz_mortality
   - default_mortality
 - title: Pronouns `.i` and `.t`
@@ -125,6 +128,11 @@ reference:
   - include
   - includes
   - category
+- title: Categories and maps
+  contents:
+  - category_domain
+  - as_categorical
+  - category_map
 - title: Naming objects
   contents:
   - name

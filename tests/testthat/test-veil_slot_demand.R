@@ -46,7 +46,7 @@ log_mu_value <- -3.2
 mu_value <- exp(log_mu_value)
 
 flat_table <- mortality_table(
-  x0 = 55, t0 = 2005,
+  x_start = 55, t_start = 2005,
   log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
 )
 

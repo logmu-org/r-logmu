@@ -4,17 +4,26 @@
 \name{mortality}
 \alias{mortality}
 \alias{is_mortality}
-\alias{end_age}
+\alias{terminal_age}
+\alias{terminal}
+\alias{terminal.default}
 \alias{log_mu}
 \alias{log_mu.default}
 \alias{log_mu.mortality_const}
+\alias{terminal.mortality_const}
 \alias{log_mu.mortality_expr}
+\alias{terminal.mortality_expr}
 \alias{log_mu.mortality_table}
+\alias{terminal.mortality_table}
 \title{Mortality-related functionality}
 \usage{
 is_mortality(x)
 
-end_age(x)
+terminal_age(x)
+
+terminal(x, .i)
+
+\method{terminal}{default}(x, .i)
 
 log_mu(x, .i, .t)
 
@@ -22,11 +31,17 @@ log_mu(x, .i, .t)
 
 \method{log_mu}{mortality_const}(x, .i, .t)
 
+\method{terminal}{mortality_const}(x, .i)
+
 mortality(expr)
 
 \method{log_mu}{mortality_expr}(x, .i, .t)
 
+\method{terminal}{mortality_expr}(x, .i)
+
 \method{log_mu}{mortality_table}(x, .i, .t)
+
+\method{terminal}{mortality_table}(x, .i)
 }
 \arguments{
 \item{x}{The \code{mortality} object.}
@@ -40,9 +55,11 @@ mortality(expr)
 \value{
 \code{is_mortality()} returns a scalar \code{logical}.
 
-\code{end_age()} returns a scalar \code{durationy}.
+\code{terminal_age()} returns a scalar \code{durationy}.
 
-A vector of \eqn{\log\mu}{log mu} values at \code{.t}.
+\code{terminal()} returns a \code{datey} for each individual in \code{.i}.
+
+\code{log_mu()} returns a vector of \eqn{\log\mu}{log mu} values at \code{.t}.
 
 A \code{mortality}.
 }
@@ -73,6 +90,8 @@ These are the core types of mortality object:\tabular{lll}{
 
 You can build on these:
 \itemize{
+\item Add a projection to a \code{\link[=base_table]{base_table()}} to make an age-period table, see
+\link{projection_table}. Scale a base table with \code{\link[=q_scaled]{q_scaled()}} or \code{\link[=mu_scaled]{mu_scaled()}}.
 \item Select between tables using TBC.
 \item Scale mortality rates using TBC.
 \item Provide sub-annual mortality variation using TBC.
@@ -84,10 +103,18 @@ Finally there are a couple of
 mortality-related helper functions:
 \itemize{
 \item \code{is_mortality(x)} tests whether \code{x} is a \code{mortality}.
-\item \code{end_age(x)} gets the end age of the \code{mortality}, i.e. the age after which
-everyone is assumed to be dead. (This is provided for valuation calculation
-and is currently ignored for AEV calculations.)
+\item \code{terminal_age(x)} gets the terminal age of a \code{\link[=mortality_table]{mortality_table()}} or a
+\code{\link[=base_table]{base_table()}}, i.e. the age by which everyone is assumed to have died.
+Any other \code{mortality} may have a terminal age that depends on the
+individual, so use \code{terminal()}.
+\item \code{terminal(x, .i)} gets the date by which each individual in \code{.i} is
+assumed to have died. A \code{mortality} with no terminal age, such as a constant
+or a Gompertz, gives \code{datey::datey(datey::valid_years_end)}. An expression
+that refers to a \code{\link[=mortality_table]{mortality_table()}} is not yet supported.
 }
+
+Terminal ages and dates are provided for valuation calculations and are
+currently ignored for A/E calculations.
 
 Builds a \code{mortality} from a pronoun expression for \eqn{\log\mu}. Concrete
 \code{mortality} objects may appear in the expression -- each contributes its own
@@ -103,7 +130,7 @@ time-invariant, as for any conditional),
 A bare reference to a concrete \code{mortality} is returned unchanged.
 }
 \examples{
-mortality <- mortality_table(x0 = 70, t0 = 2020, q = matrix(0.01))
+mortality <- mortality_table(x_start = 70, t_start = 2020, q = matrix(0.01))
 .t <- datey::datey(2020)
 .i <- list(birth = datey::datey(1950))
 log_mu(mortality, .i, .t) # log(-log(1 - 0.01)) = -4.600149

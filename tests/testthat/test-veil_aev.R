@@ -185,7 +185,7 @@ test_that("V costs nothing at all for an indicator weight", {
   #
   # A varying mortality, so that the integrals are real rather than broadcasts of a constant.
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- aev(mortality = it_obj(tbl), weight = it_ast(~ .i$male))
@@ -206,7 +206,7 @@ test_that("a double column of zeros and ones is recognised, which R could not pr
   scanned$flag <- c(1, 0, 1)
 
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- cpp_veil_aev(it_obj(tbl), it_ast(~ .i$flag), scanned, quarter_scale, NULL, no_overdispersion, 1L)
@@ -223,7 +223,7 @@ test_that("a column of small whole numbers is not mistaken for an indicator", {
   counted$units <- c(1, 2, 1)
 
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- cpp_veil_aev(it_obj(tbl), it_ast(~ .i$units), counted, quarter_scale, NULL, no_overdispersion, 1L)
@@ -235,7 +235,7 @@ test_that("a column of small whole numbers is not mistaken for an indicator", {
 
 test_that("a comparison is an indicator wherever it came from", {
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- aev(mortality = it_obj(tbl), weight = it_ast(~ .i$amount > 500))
@@ -300,7 +300,7 @@ test_that("a constant weight is hoisted out of the integral, leaving one integra
   # integrate. With a constant mortality both sides of `mu * w` are time-invariant and the pass
   # rightly declines -- the broadcast path already handles that better.
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- aev(mortality = it_obj(tbl), weight = it_ast(~ .i$amount))
@@ -320,7 +320,7 @@ test_that("a mortality table works in the recipe", {
   # Constant across the table, so mu is constant and the integral is exact. What is being tested is
   # that a table reaches the recipe at all, not the lookup, which test-veil_log_mu.R covers.
   tbl <- mortality_table(
-    x0 = 55, t0 = 2005,
+    x_start = 55, t_start = 2005,
     log_mu = matrix(log_mu_value, nrow = 40L, ncol = 20L)
   )
   res <- aev(mortality = it_obj(tbl))

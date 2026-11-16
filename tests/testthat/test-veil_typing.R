@@ -56,7 +56,7 @@ test_that("text can be compared for equality but not ordered", {
 
 test_that("a mortality table's vector_log_mu is a double vector", {
   log_mu <- matrix(log(c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06)), nrow = 3, ncol = 2)
-  tbl <- mortality_table(x0 = 60, t0 = 2010, log_mu = log_mu)
+  tbl <- mortality_table(x_start = 60, t_start = 2010, log_mu = log_mu)
   res <- cpp_veil_prepare(it_obj(tbl), cols)
 
   expect_equal(root_type(res), "double") # the vector_log_mu node

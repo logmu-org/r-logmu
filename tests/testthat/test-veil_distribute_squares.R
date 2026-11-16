@@ -48,7 +48,7 @@ squares_cols <- list(
 # A mortality that VARIES OVER TIME, which the hoist needs: against a constant one the whole
 # integrand is invariant and the pass declines it, having nothing left to integrate.
 squares_table <- mortality_table(
-  x0 = 50, t0 = 2000,
+  x_start = 50, t_start = 2000,
   log_mu = matrix(seq(-6, -2, length.out = 60 * 30), nrow = 60, ncol = 30))
 
 squares_aev <- function(weight, include = NULL) {

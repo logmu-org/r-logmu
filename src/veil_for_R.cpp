@@ -214,8 +214,8 @@ veil::ObjId readTable(veil::ObjStore& objs, SEXP obj)
     veil::MortalityTable table;
     table.ageCount = static_cast<uint32_t>(dim[0]);
     table.periodCount = static_cast<uint32_t>(dim[1]);
-    table.x0Clicks = scalarClicks(Rf_getAttrib(obj, Rf_install("x0")), "x0");
-    table.t0Clicks = scalarClicks(Rf_getAttrib(obj, Rf_install("t0")), "t0");
+    table.x0Clicks = scalarClicks(Rf_getAttrib(obj, Rf_install("x_start")), "x_start");
+    table.t0Clicks = scalarClicks(Rf_getAttrib(obj, Rf_install("t_start")), "t_start");
     table.logMu.assign(logMu.begin(), logMu.end());
 
     if (!table.isWellFormed())

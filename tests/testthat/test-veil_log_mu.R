@@ -54,7 +54,7 @@ exposure_years <- (end_clicks - start_clicks) / clicks_per_year
 
 constant_table <- function(value) {
   mortality_table(
-    x0 = x0_years, t0 = t0_years,
+    x_start = x0_years, t_start = t0_years,
     log_mu = matrix(value, nrow = age_count, ncol = period_count)
   )
 }
@@ -66,11 +66,11 @@ affine_table <- function(base, age_slope, period_slope) {
   age_index <- seq_len(age_count) - 1L
   period_index <- seq_len(period_count) - 1L
   log_mu <- outer(age_index, period_index, function(x, t) base + age_slope * x + period_slope * t)
-  mortality_table(x0 = x0_years, t0 = t0_years, log_mu = log_mu)
+  mortality_table(x_start = x0_years, t_start = t0_years, log_mu = log_mu)
 }
 
 # Where each individual's cohort sits on the lattice, in years from the table's own origin. The
-# earliest cohort the table covers is the one aged x0 at t0.
+# earliest cohort the table covers is the one aged x_start at t_start.
 cohort_index <- birth_years - (t0_years - x0_years)
 
 # log mu along one cohort, as a function of calendar time in years. Substituting age = t - b into the

@@ -33,7 +33,7 @@ cols <- list(
 )
 
 flat_table <- function() {
-  mortality_table(x0 = 55, t0 = 2005, log_mu = matrix(-3.2, nrow = 40L, ncol = 20L))
+  mortality_table(x_start = 55, t_start = 2005, log_mu = matrix(-3.2, nrow = 40L, ncol = 20L))
 }
 
 # ---- The include cannot sample time ------------------------------------------------------------

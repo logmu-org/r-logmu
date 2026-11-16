@@ -76,18 +76,21 @@ exp_end <- function(exp_data) {
   attr(exp_data, "exp_end", exact = TRUE)
 }
 
-#' Get the 'as at date' of a `val_data`
+#' Get the as-at date of a `val_data` or a `base_table`
 #'
 #' @description
 #'
-#' Gets the 'as at' date of a valuation data.
+#' Gets the as-at date of a valuation data or of a [base_table()].
 #'
-#' @param val_data The valuation data.
+#' @param x A `val_data` or a [base_table()].
 #' @returns A scalar `datey`.
 #' @export
-as_at <- function(val_data) {
-  ensure_is_val_data(val_data)
-  attr(val_data, "as_at", exact = TRUE)
+as_at <- function(x) {
+  if (!is_val_data(x) && !inherits(x, "base_table")) {
+    arg_name <- deparse(substitute(x))
+    stop("The argument `", arg_name, "` must be `val_data` or a `base_table`.", call. = FALSE)
+  }
+  attr(x, "as_at", exact = TRUE)
 }
 
 ###### Ctors ######

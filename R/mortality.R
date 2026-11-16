@@ -43,6 +43,8 @@ mortality_prophazard_class <- c("mortality_prophazard", "mortality", "logmu_func
 #'
 #' You can build on these:
 #'
+#' - Add a projection to a [base_table()] to make an age-period table, see
+#' [projection_table]. Scale a base table with [q_scaled()] or [mu_scaled()].
 #' - Select between tables using TBC.
 #' - Scale mortality rates using TBC.
 #' - Provide sub-annual mortality variation using TBC.
@@ -54,9 +56,18 @@ mortality_prophazard_class <- c("mortality_prophazard", "mortality", "logmu_func
 #'
 #' - `is_mortality(x)` tests whether `x` is a `mortality`.
 #'
-#' - `end_age(x)` gets the end age of the `mortality`, i.e. the age after which
-#' everyone is assumed to be dead. (This is provided for valuation calculation
-#' and is currently ignored for AEV calculations.)
+#' - `terminal_age(x)` gets the terminal age of a [mortality_table()] or a
+#' [base_table()], i.e. the age by which everyone is assumed to have died.
+#' Any other `mortality` may have a terminal age that depends on the
+#' individual, so use `terminal()`.
+#'
+#' - `terminal(x, .i)` gets the date by which each individual in `.i` is
+#' assumed to have died. A `mortality` with no terminal age, such as a constant
+#' or a Gompertz, gives `datey::datey(datey::valid_years_end)`. An expression
+#' that refers to a [mortality_table()] is not yet supported.
+#'
+#' Terminal ages and dates are provided for valuation calculations and are
+#' currently ignored for A/E calculations.
 #'
 #' @param x The `mortality` object.
 #' @param .i A list of named scalar arguments.
@@ -64,11 +75,13 @@ mortality_prophazard_class <- c("mortality_prophazard", "mortality", "logmu_func
 #' @returns
 #' `is_mortality()` returns a scalar `logical`.
 #'
-#' `end_age()` returns a scalar `durationy`.
+#' `terminal_age()` returns a scalar `durationy`.
 #'
-#'   A vector of \eqn{\log\mu}{log mu} values at `.t`.
+#' `terminal()` returns a `datey` for each individual in `.i`.
+#'
+#' `log_mu()` returns a vector of \eqn{\log\mu}{log mu} values at `.t`.
 #' @examples
-#' mortality <- mortality_table(x0 = 70, t0 = 2020, q = matrix(0.01))
+#' mortality <- mortality_table(x_start = 70, t_start = 2020, q = matrix(0.01))
 #' .t <- datey::datey(2020)
 #' .i <- list(birth = datey::datey(1950))
 #' log_mu(mortality, .i, .t) # log(-log(1 - 0.01)) = -4.600149
@@ -88,9 +101,33 @@ ensure_is_mortality <- function(x) {
 
 #' @rdname mortality
 #' @export
-end_age <- function(x) {
-  ensure_is_mortality(x)
-  attr(x, "end_age", exact = TRUE)
+terminal_age <- function(x) {
+  if (!inherits(x, c("mortality_table", "base_table"))) {
+    stop(
+      "`terminal_age()` needs a `mortality_table` or a `base_table`. ",
+      "For a general `mortality`, use `terminal(x, .i)`.",
+      call. = FALSE
+    )
+  }
+  attr(x, "terminal_age", exact = TRUE)
+}
+
+#' @rdname mortality
+#' @export
+terminal <- function(x, .i) UseMethod("terminal")
+
+#' @rdname mortality
+#' @export
+terminal.default <- function(x, .i) {
+  arg_name <- deparse(substitute(x))
+  stop("S3 function `terminal` is not implemented for `", arg_name, "`.", call. = FALSE)
+}
+
+# What `terminal()` gives for an individual under a mortality with no terminal
+# age: the last date a `datey` can hold.
+no_terminal <- function(.i) {
+  .b <- get_birth_dateys_from_.i(.i)
+  rep(datey::datey(datey::valid_years_end), length(.b))
 }
 
 #' @rdname mortality

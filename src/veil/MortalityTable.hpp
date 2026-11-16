@@ -63,7 +63,7 @@ constexpr TableId invalidTableId = static_cast<TableId>(-1);
 //     annual cell. Anything that wants to exploit annual cells has to reckon with that first.
 //   - AN INDEX PAST THE END IS CLAMPED to the edge of the table, age and period independently. An
 //     individual older than the table's last age is read at that last age rather than refused,
-//     which is consistent with `end_age` being a check the caller makes rather than an input here.
+//     which is consistent with `terminal_age` being a check the caller makes rather than an input here.
 //
 // ARGUMENT ORDER IS THE TRAP. The shared function counts in `tx` order -- periods first, then ages
 // -- where the table's own fields read the other way round. This wrapper is the one place that
