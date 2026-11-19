@@ -5,195 +5,145 @@
 # Copyright (c) Tim Gordon
 
 # ============================================================================
-# categorical -- logmu's own categorical vector
+# categorical -- the domain of a categorical_encoded vector
 # ============================================================================
 #
-# NOT A FACTOR, AND NOT A SUBCLASS OF ONE. A factor cannot hold code 0: some
-# base R and forcats functions refuse it as malformed and others shrink or
-# miscount without warning. A subclass of factor is worse, because forcats
-# keeps the subclass while reordering and merging the levels underneath it.
-# So a categorical stores its own codes 0..size, exactly as the engine does, and
-# converts to and from a factor at an explicit boundary where the rules are
-# checked again. The pattern is naxp's `naxp_encoded`.
+# THE NAMES MIRROR NAXP. There the bare name is the thing declared (`naxp`) and
+# the vector carries a suffix (`naxp_encoded`), so here the domain is a
+# `categorical` and the vector a `categorical_encoded`. `encode()` and
+# `decode()` serve both kinds of domain.
 #
-# NO NA, EVER. A categorical is int-backed and `int` has no portable missing value
-# (see the NaN policy), so every operation that could produce an NA -- reading
-# past the end, lengthening -- either fills code 0, where the domain allows it,
-# or stops.
-#
-# The constructor is `as_categorical()`. `category()` is already the function that
-# builds an indicator for one group of a categorical field.
+# CODE 0 IS ALWAYS INVALID, as it is for a naxp. The categories proper are
+# codes 1..size. To treat unknowns as a category, a user declares one and maps
+# to it; nothing is a category by default.
 
 categorical_class <- "categorical"
 
-#' Categorical vectors
+# Codes 0..size, and positions 1..size + 1 of a dense map, must all fit an R
+# integer.
+max_categorical_size <- .Machine$integer.max - 1L
+
+#' Categorical domains
 #'
 #' @description
-#' A `categorical` is a vector of codes in a [category_domain()]. Codes `1..size`
-#' are the domain's categories and code 0 means undefined, which is allowed only
-#' where the domain allows it. A categorical never holds `NA`.
+#' A `categorical` is a domain: the fixed set of categories a
+#' [categorical_encoded][encode()] vector can hold, with their labels and, if
+#' it has one, their order. It is defined once and reused, so every dataset,
+#' map and platform gives the same text the same code.
 #'
-#' `as_categorical()` makes one:
+#' The categories are codes `1..size`. Code 0 is always invalid, meaning no
+#' valid value, as it is for a naxp. To treat unknown values as a category of
+#' their own, declare one, such as `"unknown"`, and map to it.
 #'
-#' * from a **factor**, whose levels become the labels of a new domain, in
-#'   their order, unless `domain` is given. Name the level that stands for
-#'   code 0 with `undefined_level`. An ordered factor gives an ordered domain in
-#'   the order of its levels, so the undefined level keeps its place in that
-#'   order. `NA` is an error: give missing values a level of their own, such as
-#'   `"unknown"`, and name it as `undefined_level`.
-#' * from **text**, matched against the labels of `domain`, which is required.
-#'   The domain says which categories exist; text cannot.
-#' * from **whole numbers**, which are taken as codes in `domain`.
+#' Labels are optional. Without them each code is written as its number in
+#' plain ASCII digits, whatever the locale, so `"7"` for code 7.
 #'
-#' Text that names no category of the domain is an error rather than becoming
-#' undefined, so that a mistyped category cannot vanish.
+#' A domain is ordered if it has `sorted_codes`: every category, each exactly
+#' once, from lowest to highest. The order is separate from the codes, so codes
+#' taken from a classification scheme can keep their numbers while being ranked
+#' by, say, deprivation.
 #'
-#' A categorical prints as its labels. It compares by equality with another in
-#' the same domain, with text, or with numbers taken as codes. In an ordered
-#' domain `<`, `<=`, `>` and `>=` compare by the domain's order, as do [sort()]
-#' and [order()]. Arithmetic is an error. [c()] combines categorical vectors in
-#' the same domain. Assigning into a categorical accepts another in the same
-#' domain or text.
+#' Two domains are the same if they have the same size, labels and
+#' `sorted_codes`. Their names play no part, so two domains built separately,
+#' even on different platforms, compare equal if their content does.
 #'
-#' `%in%` and [match()] compare labels, not codes, because R gives each side to
-#' them separately. So `x %in% "act"` works, but numbers on the right are
-#' compared with the labels, and a categorical from another domain is not
-#' refused as it is by `==`.
+#' A domain cannot be modified once made.
 #'
-#' `factor(x)` gives a factor with the levels that occur, as it does for any
-#' vector, in the domain's order. To convert with every category of the domain
-#' as a level, use `forcats::as_factor(x)`: it gives the levels in the domain's
-#' order, with the undefined label first where the domain is unordered and
-#' allows undefined, and an ordered factor for an ordered domain.
-#'
-#' `domain()` returns the domain of a categorical, or the naxp of a
-#' `naxp_encoded` vector, which logmu treats as a categorical whose domain is the
-#' naxp.
-#'
+#' @param size The number of categories. May be omitted if `labels` is given.
+#' @param labels Optional labels for codes `1..size`, in code order. Each must
+#'   be a valid [name()], and they must be unique.
+#' @param sorted_codes For an ordered domain, every code `1..size` once, in
+#'   order from lowest to highest. `NULL` for an unordered domain.
+#' @param name An optional name for the domain, read back by [name()].
 #' @param x An object.
-#' @param domain A [category_domain()].
-#' @param undefined_level The level of a factor that stands for code 0.
-#' @param ... Unused.
 #' @returns
-#' `as_categorical()` returns a `categorical`.
+#' `categorical()` returns a `categorical`.
 #'
 #' `is_categorical()` returns a scalar `logical`.
-#'
-#' `domain()` returns a `category_domain`, or a naxp.
 #' @examples
-#' status <- as_categorical(factor(c("act", "def", "act", "pen")))
-#' status
-#' domain(status)
-#' status == "act"
+#' # Socio-economic types 1 to 60. Code 0 is a postcode that maps to none.
+#' types <- categorical(60, name = "types")
+#' types
 #'
-#' # Codes in a domain of socio-economic types, with 0 for none.
-#' types <- category_domain(60, allows_undefined = TRUE)
-#' as_categorical(c(12, 0, 60), types)
+#' sex <- categorical(labels = c("female", "male"), name = "sex")
+#' encode(c("male", NA, "female"), sex)
 #'
-#' # A factor level that stands for undefined.
-#' as_categorical(factor(c("a", "none", "b")), undefined_level = "none")
+#' # Deprivation bands, ranked, with unknown as a category of its own.
+#' categorical(
+#'   labels = c("low", "unknown", "mid", "high"),
+#'   sorted_codes = c(1, 3, 4, 2)
+#' )
 #' @export
-as_categorical <- function(x, ...) UseMethod("as_categorical")
+categorical <- function(
+  size = NULL,
+  labels = NULL,
+  sorted_codes = NULL,
+  name = NULL) {
 
-#' @rdname as_categorical
-#' @export
-as_categorical.default <- function(x, ...) {
-  stop("Cannot make a `categorical` from an object of class `", class(x)[[1L]], "`.",
-       call. = FALSE)
-}
-
-#' @rdname as_categorical
-#' @export
-as_categorical.categorical <- function(x, domain = NULL, ...) {
-  if (!is.null(domain)) {
-    ensure_is_category_domain(domain)
-    if (!same_category_domain(domain(x), domain)) {
-      stop("This categorical is in a different domain.", call. = FALSE)
+  if (!is.null(labels)) {
+    if (!is_pure_text(labels) || length(labels) == 0L) {
+      stop("`labels` must be a character vector with at least one label.", call. = FALSE)
+    }
+    ensure_are_valid_names(labels, "labels")
+    duplicated_labels <- unique(labels[duplicated(labels)])
+    if (length(duplicated_labels) > 0L) {
+      stop("`labels` must be unique; repeated: ",
+           paste0("\"", duplicated_labels, "\"", collapse = ", "), ".", call. = FALSE)
     }
   }
-  x
+
+  if (is.null(size)) {
+    if (is.null(labels)) {
+      stop("A `categorical` needs a `size` or `labels`.", call. = FALSE)
+    }
+    size <- length(labels)
+  }
+  ensure_is_categorical_size(size)
+  size <- as.integer(size)
+  if (!is.null(labels) && length(labels) != size) {
+    stop("`labels` must have one label per code, i.e. ", size, ".", call. = FALSE)
+  }
+
+  sorted_codes <- checked_sorted_codes(sorted_codes, size)
+
+  if (!is.null(name)) ensure_is_valid_name(name)
+
+  new_categorical(size, labels, sorted_codes, name)
 }
 
-#' @rdname as_categorical
-#' @export
-as_categorical.factor <- function(x, domain = NULL, undefined_level = NULL, ...) {
-  if (anyNA(x)) {
-    stop("A categorical cannot hold NA. Give the missing values a level of their own, ",
-         "such as \"unknown\", and name it as `undefined_level`.", call. = FALSE)
-  }
-  if (!is.null(domain)) {
-    if (!is.null(undefined_level)) {
-      stop("Give `undefined_level` or `domain`, not both: a domain has its own ",
-           "undefined label.", call. = FALSE)
-    }
-    return(as_categorical.character(as.character(x), domain))
-  }
-  if (!is.null(undefined_level)) ensure_is_single_valid_text(undefined_level)
-  labels <- setdiff(levels(x), undefined_level)
-  # An ordered factor's levels are its order, with the undefined level in its
-  # own place. Its codes run 1, 2, ... over the other levels in the same order.
-  level_codes <- match(levels(x), labels)
-  level_codes[is.na(level_codes)] <- 0L
-  if (is.ordered(x) && !is.null(undefined_level) && !undefined_level %in% levels(x)) {
-    stop("The undefined level \"", undefined_level, "\" must be a level of an ordered ",
-         "factor, so that its place in the order is known.", call. = FALSE)
-  }
-  domain <- category_domain(
-    labels = labels,
-    undefined_label = undefined_level,
-    sorted_codes = if (is.ordered(x)) level_codes
+new_categorical <- function(size, labels, sorted_codes, name) {
+  structure(
+    list(
+      size = size,
+      labels = labels,
+      sorted_codes = sorted_codes
+    ),
+    class = categorical_class,
+    name = name
   )
-  new_categorical(level_codes[as.integer(x)], domain)
 }
 
-#' @rdname as_categorical
-#' @export
-as_categorical.character <- function(x, domain, ...) {
-  if (missing(domain)) {
-    stop("Text needs a `domain` to say which categories exist.", call. = FALSE)
-  }
-  if (anyNA(x)) {
-    stop("A categorical cannot hold NA.", call. = FALSE)
-  }
-  ensure_is_category_domain(domain)
-  new_categorical(category_domain_codes(domain, unname(x)), domain)
-}
-
-#' @rdname as_categorical
-#' @export
-as_categorical.numeric <- function(x, domain, ...) {
-  if (missing(domain)) {
-    stop("Codes need a `domain` to belong to.", call. = FALSE)
-  }
-  ensure_is_category_domain(domain)
-  new_categorical(checked_category_codes(x, domain), domain)
-}
-
-# Whole numbers in 0..size, with 0 only where the domain allows it.
-checked_category_codes <- function(codes, domain) {
-  codes <- unclass(codes)
-  attributes(codes) <- NULL
-  if (anyNA(codes) || any(codes != round(codes)) ||
-      any(codes < 0) || any(codes > domain$size)) {
-    stop("Codes must be whole numbers from ", if (domain$allows_undefined) 0 else 1,
-         " to ", domain$size, ", with no NA.", call. = FALSE)
-  }
-  codes <- as.integer(codes)
-  ensure_undefined_allowed(codes, domain)
-  codes
-}
-
-ensure_undefined_allowed <- function(codes, domain) {
-  if (!domain$allows_undefined && any(codes == 0L)) {
-    stop("This domain does not allow code 0 (undefined).", call. = FALSE)
+ensure_is_categorical_size <- function(size) {
+  if (!is_single_pure_finite_numeric(size) || size != round(size) ||
+      size < 1 || size > max_categorical_size) {
+    stop("`size` must be a whole number from 1 to ", max_categorical_size, ".",
+         call. = FALSE)
   }
 }
 
-new_categorical <- function(codes, domain) {
-  structure(codes, domain = domain, class = categorical_class)
+# Every category exactly once. Code 0 is not a category, so it has no place.
+checked_sorted_codes <- function(sorted_codes, size) {
+  if (is.null(sorted_codes)) return(NULL)
+  if (!is_pure_numeric(sorted_codes) || anyNA(sorted_codes) ||
+      any(sorted_codes != round(sorted_codes)) ||
+      !identical(sort(as.integer(sorted_codes)), seq_len(size))) {
+    stop("`sorted_codes` must hold every code from 1 to ", size, " exactly once.",
+         call. = FALSE)
+  }
+  as.integer(sorted_codes)
 }
 
-#' @rdname as_categorical
+#' @rdname categorical
 #' @export
 is_categorical <- function(x) inherits(x, categorical_class)
 
@@ -204,232 +154,112 @@ ensure_is_categorical <- function(x) {
   }
 }
 
-#' @rdname as_categorical
-#' @export
-domain <- function(x) UseMethod("domain")
+is_ordered_domain <- function(domain) is_categorical(domain) && !is.null(domain$sorted_codes)
 
-#' @rdname as_categorical
-#' @export
-domain.default <- function(x) {
-  stop("Only a `categorical` or a `naxp_encoded` vector has a domain.", call. = FALSE)
+# The rank of each code in an ordered domain, indexed by code + 1. Code 0 is
+# invalid and ranks below every category, as it does in naxp's `xtfrm()`.
+category_ranks <- function(domain) {
+  ranks <- integer(domain$size + 1L)
+  ranks[domain$sorted_codes + 1L] <- seq_along(domain$sorted_codes)
+  ranks
 }
 
-#' @rdname as_categorical
-#' @export
-domain.categorical <- function(x) attr(x, "domain", exact = TRUE)
+# UNLABELLED CODES ARE WRITTEN AS INTEGERS, which `as.character()` gives as
+# plain ASCII digits with no grouping, no leading zeros and no scientific
+# notation, whatever the locale. Neither direction builds the text of every
+# code, because an unlabelled domain may be very large.
 
-#' @rdname as_categorical
-#' @export
-domain.naxp_encoded <- function(x) naxp_of(x)
+# The text of each code in `codes`, with NA for code 0, which has none.
+category_text <- function(domain, codes) {
+  codes <- as.integer(codes)
+  text <- rep(NA_character_, length(codes))
+  valid <- codes != 0L
+  text[valid] <- if (is.null(domain$labels)) {
+    as.character(codes[valid])
+  } else {
+    domain$labels[codes[valid]]
+  }
+  text
+}
 
-# The codes without class, domain or names.
-categorical_codes <- function(x) {
-  codes <- unclass(x)
-  attributes(codes) <- NULL
+# The code 1..size an unlabelled domain writes as each string, or NA. Only the
+# canonical form counts: "07" and "7.0" are not code 7.
+unlabelled_codes <- function(text, size) {
+  codes <- rep(NA_integer_, length(text))
+  canonical <- !is.na(text) & grepl("^[1-9][0-9]{0,9}$", text)
+  number <- as.numeric(text[canonical])
+  codes[canonical] <- ifelse(number <= size, as.integer(pmin(number, size)), NA_integer_)
   codes
 }
 
-# Codes to assign into, or compare with, a categorical in `domain`.
-categorical_codes_under <- function(value, domain, numbers_allowed) {
-  if (is_categorical(value)) {
-    if (!same_category_domain(domain(value), domain)) {
-      stop("These categorical vectors are in different domains.", call. = FALSE)
-    }
-    return(categorical_codes(value))
+# The code of each string in `text`, with NA as code 0. Text that names no
+# category is an error: a mistyped category must not quietly become invalid.
+category_codes <- function(domain, text) {
+  codes <- if (is.null(domain$labels)) {
+    unlabelled_codes(text, domain$size)
+  } else {
+    match(text, domain$labels)
   }
-  if (is.character(value)) {
-    return(category_domain_codes(domain, value))
+  unknown <- unique(text[is.na(codes) & !is.na(text)])
+  if (length(unknown) > 0L) {
+    shown <- utils::head(unknown, 5L)
+    stop("Not a category of this domain: ",
+         paste0("\"", shown, "\"", collapse = ", "),
+         if (length(unknown) > length(shown)) ", ..." else "", ".", call. = FALSE)
   }
-  if (numbers_allowed && is.numeric(value) && !is.object(value)) {
-    return(value)
-  }
-  stop(
-    if (numbers_allowed) {
-      "A categorical can be compared only with one in the same domain, with text, or with codes."
-    } else {
-      "Assign a categorical in the same domain, or text, which is matched to its labels."
-    },
-    call. = FALSE
-  )
+  codes[is.na(codes)] <- 0L
+  as.integer(codes)
 }
 
-# Positions gained by lengthening hold NA. A categorical fills them with code 0
-# where its domain allows it, and otherwise cannot be lengthened.
-fill_undefined <- function(codes, domain) {
-  if (anyNA(codes)) {
-    if (!domain$allows_undefined) {
-      stop("This would leave positions with no category, and the domain does not ",
-           "allow code 0 (undefined).", call. = FALSE)
-    }
-    codes[is.na(codes)] <- 0L
+# Whether two domains are the same: equal in content, whatever their names. A
+# `naxp` is a domain too, and equals another with the same pattern.
+same_domain <- function(a, b) {
+  if (is_naxp(a) || is_naxp(b)) {
+    return(is_naxp(a) && is_naxp(b) && same_naxp(a, b))
   }
-  codes
+  a$size == b$size &&
+    identical(a$labels, b$labels) &&
+    identical(a$sorted_codes, b$sorted_codes)
 }
 
-#' @export
-#' @noRd
-format.categorical <- function(x, ...) {
-  category_domain_text(domain(x), categorical_codes(x))
+# How a domain is described in a single line: its name, else its pattern or
+# size.
+domain_label <- function(domain) {
+  if (is_naxp(domain)) return(paste0("naxp ", naxp_pattern(domain)))
+  name(domain) %||% paste0(domain$size, if (domain$size == 1L) " category" else " categories")
 }
 
 #' @export
 #' @noRd
 print.categorical <- function(x, ...) {
-  cat("<categorical[", length(x), "]> ", category_domain_label(domain(x)), "\n", sep = "")
-  if (length(x) > 0L) {
-    print(format(x), quote = FALSE)
+  cat(sprintf(
+    "<categorical%s> %d %s, %s\n",
+    if (is.null(name(x))) "" else paste0(": ", name(x)),
+    x$size,
+    if (x$size == 1L) "category" else "categories",
+    if (is_ordered_domain(x)) "ordered" else "unordered"
+  ))
+  if (!is.null(x$labels)) {
+    shown <- utils::head(x$labels, 6L)
+    cat("Labels: ", paste(shown, collapse = ", "),
+        if (x$size > length(shown)) ", ..." else "", "\n", sep = "")
+  }
+  if (is_ordered_domain(x)) {
+    shown <- utils::head(x$sorted_codes, 6L)
+    cat("Order: ", paste(category_text(x, shown), collapse = " < "),
+        if (length(x$sorted_codes) > length(shown)) " < ..." else "", "\n", sep = "")
   }
   invisible(x)
 }
 
 #' @export
 #' @noRd
-as.character.categorical <- function(x, ...) format.categorical(x)
+`$<-.categorical` <- function(x, name, value) stop_table_immutable("categorical")
 
 #' @export
 #' @noRd
-as.data.frame.categorical <- function(
-  x,
-  row.names = NULL,
-  optional = FALSE,
-  ...,
-  nm = deparse1(substitute(x))) {
-  as.data.frame.vector(x, row.names = row.names, optional = optional, ..., nm = nm)
-}
+`[[<-.categorical` <- function(x, i, value) stop_table_immutable("categorical")
 
 #' @export
 #' @noRd
-`[.categorical` <- function(x, ...) {
-  domain <- domain(x)
-  new_categorical(fill_undefined(categorical_codes(NextMethod()), domain), domain)
-}
-
-#' @export
-#' @noRd
-`[[.categorical` <- function(x, ...) {
-  new_categorical(categorical_codes(NextMethod()), domain(x))
-}
-
-#' @export
-#' @noRd
-`[<-.categorical` <- function(x, ..., value) {
-  domain <- domain(x)
-  value <- categorical_codes_under(value, domain, numbers_allowed = FALSE)
-  codes <- categorical_codes(x)
-  codes[...] <- value
-  new_categorical(fill_undefined(codes, domain), domain)
-}
-
-#' @export
-#' @noRd
-`[[<-.categorical` <- function(x, ..., value) {
-  domain <- domain(x)
-  value <- categorical_codes_under(value, domain, numbers_allowed = FALSE)
-  codes <- categorical_codes(x)
-  codes[[...]] <- value
-  new_categorical(fill_undefined(codes, domain), domain)
-}
-
-#' @export
-#' @noRd
-`length<-.categorical` <- function(x, value) {
-  domain <- domain(x)
-  codes <- categorical_codes(x)
-  length(codes) <- value
-  new_categorical(fill_undefined(codes, domain), domain)
-}
-
-#' @export
-#' @noRd
-c.categorical <- function(...) {
-  parts <- Filter(Negate(is.null), list(...))
-  domain <- domain(parts[[1L]])
-  for (part in parts) {
-    if (!is_categorical(part) || !same_category_domain(domain(part), domain)) {
-      stop("Only categorical vectors in the same domain can be combined.", call. = FALSE)
-    }
-  }
-  new_categorical(unlist(lapply(parts, categorical_codes)), domain)
-}
-
-#' @export
-#' @noRd
-rep.categorical <- function(x, ...) {
-  new_categorical(categorical_codes(NextMethod()), domain(x))
-}
-
-#' @export
-#' @noRd
-unique.categorical <- function(x, incomparables = FALSE, ...) {
-  new_categorical(unique(categorical_codes(x), incomparables = incomparables, ...), domain(x))
-}
-
-# NO `mtfrm()` METHOD, unlike `naxp_encoded`. Without one, match() and %in%
-# compare labels, so `x %in% "act"` works; with one they would compare codes
-# against the text and quietly find nothing. Labels are unique within a domain,
-# so matching by label is exact there.
-# Sorting follows the domain's order where it has one, and the codes otherwise.
-#' @export
-#' @noRd
-xtfrm.categorical <- function(x) {
-  domain <- domain(x)
-  codes <- categorical_codes(x)
-  if (is_ordered_domain(domain)) category_domain_ranks(domain)[codes + 1L] else codes
-}
-
-#' @export
-#' @noRd
-Ops.categorical <- function(e1, e2) {
-  equality <- .Generic %in% c("==", "!=")
-  ordering <- .Generic %in% c("<", "<=", ">", ">=")
-  if (!equality && !ordering) {
-    stop("`", .Generic, "` is not defined for categorical vectors, which support only comparison.",
-         call. = FALSE)
-  }
-  domain <- if (is_categorical(e1)) domain(e1) else domain(e2)
-  if (ordering && !is_ordered_domain(domain)) {
-    stop("`", .Generic, "` needs an ordered domain; this one is unordered.", call. = FALSE)
-  }
-  e1 <- categorical_codes_under(e1, domain, numbers_allowed = TRUE)
-  e2 <- categorical_codes_under(e2, domain, numbers_allowed = TRUE)
-  if (ordering) {
-    # Compare ranks in the domain's order, in which code 0 has a place like any
-    # other code. Bare numbers must be codes of the domain to have a rank.
-    ranks <- category_domain_ranks(domain)
-    e1 <- ranks[checked_category_codes(e1, domain) + 1L]
-    e2 <- ranks[checked_category_codes(e2, domain) + 1L]
-  }
-  get(.Generic, envir = baseenv())(e1, e2)
-}
-
-#' @export
-#' @noRd
-Math.categorical <- function(x, ...) {
-  stop("`", .Generic, "()` is not defined for categorical vectors. Use as.integer() for the codes.",
-       call. = FALSE)
-}
-
-#' @export
-#' @noRd
-Summary.categorical <- function(..., na.rm = FALSE) {
-  stop("`", .Generic, "()` is not defined for categorical vectors. Use as.integer() for the codes.",
-       call. = FALSE)
-}
-
-# Every category of the domain as a level: in the domain's order where it has
-# one, and otherwise in code order with the undefined label first.
-#' @exportS3Method forcats::as_factor
-as_factor.categorical <- function(x, ...) {
-  domain <- domain(x)
-  ordered <- is_ordered_domain(domain)
-  all_codes <- if (ordered) {
-    domain$sorted_codes
-  } else {
-    c(if (domain$allows_undefined) 0L, seq_len(domain$size))
-  }
-  factor(
-    format.categorical(x),
-    levels = category_domain_text(domain, all_codes),
-    ordered = ordered
-  )
-}
+`[<-.categorical` <- function(x, i, value) stop_table_immutable("categorical")

@@ -14,21 +14,24 @@
 #
 #   naxp source         sparse: sorted naxp codes in `keys`, `values` parallel,
 #                       and `undefined` for code 0 and every unlisted key
-#   categorical source  dense: `values` indexed by code, one for every code of
-#                       the source domain (size, or size + 1 where it allows
-#                       code 0); unlisted codes and code 0 take `undefined` when
-#                       the map is built, so nothing else needs storing
+#   categorical source  dense: `values` indexed by code + 1, one for code 0 and
+#                       one for every category; code 0 and unlisted categories
+#                       take `undefined` when the map is built, so nothing else
+#                       needs storing
 #
 # The value type is logical, integer, double, naxp, categorical, or a flat
 # struct of those (a data frame of columns in R).
 #
-# `undefined` DEFAULTS TO ALL-ZERO BITS: FALSE, 0L, +0.0, naxp code 0 or
-# category code 0, field by field for a struct. It covers code 0 and every key
-# the map does not list. Code 0 is therefore never a key.
+# `undefined` IS ALWAYS REACHED. Code 0 is invalid and can arrive from any
+# source, so every map needs a value for it, and the same value covers every
+# key the map does not list. Code 0 is therefore never a key. Its default
+# depends on the value type alone: NaN for a double, code 0 (invalid) for a
+# categorical or naxp, and none for a logical or integer, which have no
+# invalid value, so any default would quietly pick a real answer.
 #
-# WHY `undefined` IS STORED. Without it, "unlisted keys get zero" is not closed
-# under composition: if `f` sends code 0 to something other than zero, the
-# single map `f` after `g` would need its unlisted keys to get that value, with
+# WHY `undefined` IS STORED. Without it, "unlisted keys get one fixed value" is
+# not closed under composition: if `f` sends code 0 somewhere else, the single
+# map `f` after `g` would need its unlisted keys to get that value, with
 # nowhere to keep it. With it, composition always gives a single map.
 #
 # A MAP IS A FUNCTION, as `ecdf()` and `approxfun()` return functions: `oac(x)`
@@ -37,9 +40,10 @@
 # through `sys.function()`. Applying a map to another map is an error:
 # composition is a deliberate act, through `compose_maps()`.
 #
-# Struct fields are rewritten at compile time in the engine (`coords(...)$easting`
-# becomes a map onto the `easting` column alone), so a struct is never a value
-# the engine carries. That is engine work and is not here yet.
+# Struct fields are rewritten when an expression is captured
+# (`coords(...)$easting` becomes a map onto the `easting` column alone), so a
+# struct is never a value the engine carries. That is engine work and is not
+# here yet.
 
 category_map_class <- c("category_map", "function")
 
@@ -51,45 +55,50 @@ struct_field_pattern <- "^[A-Za-z][A-Za-z0-9_]*$"
 #'
 #' @description
 #' A `category_map` gives a value for every code of a naxp, such as a
-#' postcode, or of a [categorical][as_categorical()]. It is a function: a map
-#' `oac` applied to postcodes is `oac(postcodes)`.
+#' postcode, or of a [categorical()] domain. It is a function: a map `oac`
+#' applied to postcodes is `oac(postcodes)`.
 #'
-#' `keys` lists the codes the map gives values for, as a `naxp_encoded` vector
-#' or a `categorical`; the map's source is its naxp or its domain. `values`
-#' gives the value for each key, in the same order. It may be a logical,
-#' integer or double vector, a `naxp_encoded` vector, a `categorical`, or a
-#' data frame of those to give a struct of named fields. Logical and integer
-#' values may not be `NA`. Field names must start with a letter and use only
-#' ASCII letters, digits and underscores; they are case-sensitive.
+#' `keys` lists the codes the map gives values for, as a `naxp_encoded` or
+#' `categorical_encoded` vector, usually made with [encode()]; the map's source
+#' is their domain. `values` gives the value for each key, in the same order.
+#' It may be a logical, integer or double vector, a `naxp_encoded` or
+#' `categorical_encoded` vector, or a data frame of those to give a struct of
+#' named fields. Logical and integer values may not be `NA`. Field names must
+#' start with a letter and use only ASCII letters, digits and underscores; they
+#' are case-sensitive.
 #'
-#' `undefined` is the value for code 0 and for every key the map does not
-#' list. It defaults to zero: `FALSE`, `0`, naxp code 0 or category code 0,
-#' and zero in every field of a struct. For a postcode, being listed is what
-#' makes it valid, so code 0 is never itself a key. Where the default would be
-#' category code 0 and the values' domain does not allow it, give `undefined`
-#' explicitly.
+#' `undefined` is the value for code 0, which is invalid, and for every key the
+#' map does not list. Code 0 is never itself a key. Its default depends on the
+#' type of the values:
 #'
-#' Note that a double map used as a weight gives a weight of 0 by default to a
-#' key it does not list, which removes that record from the experience
-#' entirely.
+#' * a double gives `NaN`;
+#' * a `naxp_encoded` or `categorical_encoded` value gives code 0, which is
+#'   invalid;
+#' * a logical or an integer has no invalid value, so `undefined` must be
+#'   given;
+#' * a struct takes each field's default, so it must be given where any field
+#'   is logical or integer.
+#'
+#' To treat invalid and unlisted keys as a category of their own, declare that
+#' category in the values' domain and give it as `undefined`.
 #'
 #' Where both the source and a categorical value domain are ordered, the map
 #' must keep the order: going up the source's order, the values may not go
-#' down the values' order.
+#' down the values' order. Invalid values take no part in the check.
 #'
 #' Applying a map to a vector of its source gives a vector of its values, or a
-#' data frame for a struct. A map keyed by a categorical also accepts text or a
-#' factor, which is matched to its source's labels. `f(g(x))` applies `g` and
-#' then `f`. To make a single map that does both, use `compose_maps(f, g)`,
-#' which needs the values of `g` to be in the source of `f`. The result keeps
-#' nothing of `f` or `g`.
+#' data frame for a struct. A map from a `categorical` also accepts text or a
+#' factor, which is encoded in its source. `f(g(x))` applies `g` and then `f`.
+#' To make a single map that does both, use `compose_maps(f, g)`, which needs
+#' the values of `g` to be in the source of `f`. The result keeps nothing of
+#' `f` or `g`.
 #'
-#' @param keys The keys: a `naxp_encoded` vector or a `categorical`. They must
-#'   be unique and may not include code 0.
+#' @param keys The keys: a `naxp_encoded` or `categorical_encoded` vector. They
+#'   must be unique and may not include code 0.
 #' @param values The value for each key.
 #' @param undefined The value for code 0 and every unlisted key, of the same
 #'   type as `values`: a single value, or a one-row data frame for a struct.
-#'   `NULL` for zero.
+#'   `NULL` for the default, where the type has one.
 #' @param name An optional name for the map, read back by [name()].
 #' @param f,g Maps; `compose_maps(f, g)` applies `g` first.
 #' @param x An object.
@@ -99,51 +108,54 @@ struct_field_pattern <- "^[A-Za-z][A-Za-z0-9_]*$"
 #'
 #' `is_category_map()` returns a scalar `logical`.
 #' @examples
-#' # Socio-economic types 1 to 3, remapped into two clusters.
-#' types <- category_domain(3, allows_undefined = TRUE, name = "types")
-#' clusters <- category_domain(labels = c("low", "high"), undefined_label = "none")
+#' # Socio-economic types 1 to 3, remapped into two clusters, with a third
+#' # cluster for types that are invalid or unlisted.
+#' types <- categorical(3, name = "types")
+#' clusters <- categorical(labels = c("low", "high", "unknown"), name = "clusters")
 #' to_cluster <- category_map(
-#'   keys = as_categorical(c(1, 2, 3), types),
-#'   values = as_categorical(c("low", "low", "high"), clusters),
+#'   keys = categorical_encoded(c(1, 2), types),
+#'   values = encode(c("low", "high"), clusters),
+#'   undefined = encode("unknown", clusters),
 #'   name = "to_cluster"
 #' )
 #' to_cluster
-#' to_cluster(as_categorical(c(3, 0, 1), types))
+#' to_cluster(categorical_encoded(c(3, 0, 1), types))
 #'
 #' # A weight for each cluster, with 1 where none applies.
 #' weight <- category_map(
-#'   keys = as_categorical(c("low", "high"), clusters),
-#'   values = c(1.1, 0.9),
+#'   keys = encode(c("low", "high", "unknown"), clusters),
+#'   values = c(1.1, 0.9, 1),
 #'   undefined = 1
 #' )
-#' weight(to_cluster(as_categorical(c(3, 0, 1), types)))
+#' weight(to_cluster(categorical_encoded(c(3, 0, 1), types)))
 #'
 #' # The same as a single map.
 #' type_weight <- compose_maps(weight, to_cluster)
-#' type_weight(as_categorical(c(3, 0, 1), types))
+#' type_weight(categorical_encoded(c(3, 0, 1), types))
 #'
-#' # A struct of two fields.
+#' # A struct of two fields. The logical field needs an explicit undefined.
 #' details <- category_map(
-#'   keys = as_categorical(c(1, 3), types),
-#'   values = data.frame(weight = c(0.9, 1.2), flagged = c(FALSE, TRUE))
+#'   keys = categorical_encoded(c(1, 3), types),
+#'   values = data.frame(weight = c(0.9, 1.2), flagged = c(FALSE, TRUE)),
+#'   undefined = data.frame(weight = NaN, flagged = FALSE)
 #' )
-#' details(as_categorical(c(1, 2, 3), types))
+#' details(categorical_encoded(c(1, 2, 3), types))
 #' @export
 category_map <- function(keys, values, undefined = NULL, name = NULL) {
   if (is_naxp_encoded(keys)) {
     source <- naxp_of(keys)
     key_codes <- naxp_codes(keys)
     key_text <- paste0("code ", key_codes)
-  } else if (is_categorical(keys)) {
+  } else if (is_categorical_encoded(keys)) {
     source <- domain(keys)
     key_codes <- categorical_codes(keys)
-    key_text <- format.categorical(keys)
+    key_text <- format.categorical_encoded(keys)
   } else {
-    stop("The keys of a `category_map` must be a `naxp_encoded` vector or a `categorical`.",
-         call. = FALSE)
+    stop("The keys of a `category_map` must be a `naxp_encoded` or a `categorical_encoded` ",
+         "vector.", call. = FALSE)
   }
   if (any(key_codes == 0)) {
-    stop("Code 0 cannot be a key: give its value as `undefined`.", call. = FALSE)
+    stop("Code 0 is invalid and cannot be a key: give its value as `undefined`.", call. = FALSE)
   }
   repeated <- unique(key_text[duplicated(key_codes)])
   if (length(repeated) > 0L) {
@@ -154,9 +166,7 @@ category_map <- function(keys, values, undefined = NULL, name = NULL) {
   if (!is.null(name)) ensure_is_valid_name(name)
 
   checked <- checked_map_values(values, length(key_codes))
-  # A naxp has far too many codes to list, so its undefined is always reached.
-  undefined_reached <- is_naxp(source) || source$allows_undefined || length(key_codes) < source$size
-  undefined <- checked_undefined(undefined, checked, undefined_reached)
+  undefined <- checked_undefined(undefined, checked)
 
   if (is_naxp(source)) {
     order <- order(key_codes, method = "radix")
@@ -170,11 +180,10 @@ category_map <- function(keys, values, undefined = NULL, name = NULL) {
     ))
   }
 
-  # Dense storage: position code + 1 where the source allows code 0, code
-  # otherwise. Unlisted codes and code 0 index nothing and so take `undefined`.
-  offset <- as.integer(source$allows_undefined)
-  index <- rep(NA_integer_, source$size + offset)
-  index[key_codes + offset] <- seq_along(key_codes)
+  # Dense storage: position code + 1. Code 0 and unlisted codes index nothing
+  # and so take `undefined`.
+  index <- rep(NA_integer_, source$size + 1L)
+  index[key_codes + 1L] <- seq_along(key_codes)
   dense_values <- take_map_values(checked$values, index, undefined)
   ensure_order_is_kept(source, dense_values)
   new_category_map(
@@ -266,18 +275,18 @@ ensure_struct_fields <- function(values) {
 # One of "logical", "integer", "double", "naxp" or "categorical". A struct may
 # not nest, so a data frame or a list is not a column type.
 column_value_type <- function(column, what) {
-  if (is_categorical(column)) return("categorical")
+  if (is_categorical_encoded(column)) return("categorical")
   if (is_naxp_encoded(column)) return("naxp")
   if (is.factor(column)) {
-    stop(what, " is a factor. Convert it with `as_categorical()` first.", call. = FALSE)
+    stop(what, " is a factor. Convert it with `encode()` first.", call. = FALSE)
   }
   if (!is.object(column) && is.null(dim(column))) {
     if (is.logical(column)) return("logical")
     if (is.integer(column)) return("integer")
     if (is.double(column)) return("double")
   }
-  stop(what, " must be logical, integer, double, a `naxp_encoded` vector or a ",
-       "`categorical`. Structs may not nest.", call. = FALSE)
+  stop(what, " must be logical, integer, double, or a `naxp_encoded` or ",
+       "`categorical_encoded` vector. Structs may not nest.", call. = FALSE)
 }
 
 checked_column_values <- function(column, what) {
@@ -302,19 +311,17 @@ same_column_type <- function(a, b) {
   type <- column_value_type(a, "A value")
   if (type != column_value_type(b, "A value")) return(FALSE)
   switch(type,
-    categorical = same_category_domain(domain(a), domain(b)),
+    categorical = same_domain(domain(a), domain(b)),
     naxp = same_naxp(naxp_of(a), naxp_of(b)),
     TRUE
   )
 }
 
-# `undefined` as a single value of the map's value type: zero where it is not
-# given. Zero must be a valid value where the map can reach it.
-checked_undefined <- function(undefined, checked, undefined_reached) {
+# `undefined` as a single value of the map's value type: the type's default
+# where it is not given.
+checked_undefined <- function(undefined, checked) {
   if (is.null(undefined)) {
-    zero <- zero_value_like(checked$values)
-    if (undefined_reached) ensure_zero_is_valid(zero)
-    return(zero)
+    return(default_undefined(checked$values))
   }
   given <- checked_map_values(undefined, 1L, "`undefined`")
   same <- given$value_type == checked$value_type && if (checked$value_type == "struct") {
@@ -330,28 +337,43 @@ checked_undefined <- function(undefined, checked, undefined_reached) {
   given$values
 }
 
-# A single all-zero value of the type of `values`. Category code 0 is made here
-# even where the domain does not allow it; `ensure_zero_is_valid()` says so.
-zero_value_like <- function(values) {
-  if (is.data.frame(values)) {
-    return(new_struct(lapply(values, zero_value_like), 1L))
+# The invalid value of each type: NaN, or code 0. A logical or an integer has
+# none, so its `undefined` must be given.
+default_undefined <- function(values) {
+  # Encoded vectors are integer underneath, so the class decides, not the type.
+  has_no_invalid_value <- function(column) {
+    !is.object(column) && (is.logical(column) || is.integer(column))
   }
-  if (is_categorical(values)) return(new_categorical(0L, domain(values)))
+  without_default <- if (is.data.frame(values)) {
+    names(values)[vapply(values, has_no_invalid_value, TRUE)]
+  } else if (has_no_invalid_value(values)) {
+    "values"
+  } else {
+    character(0L)
+  }
+  if (length(without_default) > 0L) {
+    stop(
+      if (is.data.frame(values)) {
+        paste0("A struct with a logical or integer field (",
+               paste0("`", without_default, "`", collapse = ", "), ") needs `undefined`")
+      } else {
+        paste0(if (is.logical(values)) "A logical" else "An integer", " map needs `undefined`")
+      },
+      ": the value for invalid and unlisted keys.", call. = FALSE
+    )
+  }
+  invalid_value_like(values)
+}
+
+invalid_value_like <- function(values) {
+  if (is.data.frame(values)) {
+    return(new_struct(lapply(values, invalid_value_like), 1L))
+  }
+  if (is_categorical_encoded(values)) return(new_categorical_encoded(0L, domain(values)))
   if (is_naxp_encoded(values)) {
     return(new_naxp_encoded_codes(if (is.integer(naxp_codes(values))) 0L else 0, naxp_of(values)))
   }
-  if (is.logical(values)) FALSE else if (is.integer(values)) 0L else 0
-}
-
-ensure_zero_is_valid <- function(zero) {
-  columns <- if (is.data.frame(zero)) zero else list(zero)
-  for (column in columns) {
-    if (is_categorical(column) && !domain(column)$allows_undefined) {
-      stop("Some keys are unlisted or code 0, and get `undefined`. It defaults to ",
-           "category code 0, which the values' domain does not allow, so give ",
-           "`undefined` explicitly.", call. = FALSE)
-    }
-  }
+  NaN
 }
 
 # ---- reading values by position -------------------------------------------------
@@ -370,10 +392,10 @@ take_map_values <- function(values, index, fill = NULL) {
 
 take_column_values <- function(column, index, fill) {
   missing <- is.na(index)
-  if (is_categorical(column)) {
+  if (is_categorical_encoded(column)) {
     codes <- categorical_codes(column)[index]
     if (any(missing)) codes[missing] <- categorical_codes(fill)
-    return(new_categorical(codes, domain(column)))
+    return(new_categorical_encoded(codes, domain(column)))
   }
   if (is_naxp_encoded(column)) {
     codes <- naxp_codes(column)[index]
@@ -386,15 +408,16 @@ take_column_values <- function(column, index, fill) {
 }
 
 # Where both domains are ordered, going up the source's order the values may
-# not go down the values' order.
+# not go down the values' order. Code 0 is not a category on either side, so
+# neither the source's code 0 nor an invalid value takes part.
 ensure_order_is_kept <- function(source, dense_values) {
-  if (!is_ordered_domain(source) || !is_categorical(dense_values) ||
+  if (!is_ordered_domain(source) || !is_categorical_encoded(dense_values) ||
       !is_ordered_domain(domain(dense_values))) {
     return(invisible())
   }
-  offset <- as.integer(source$allows_undefined)
-  value_codes <- categorical_codes(dense_values)[source$sorted_codes + offset]
-  value_ranks <- category_domain_ranks(domain(dense_values))[value_codes + 1L]
+  value_codes <- categorical_codes(dense_values)[source$sorted_codes + 1L]
+  value_codes <- value_codes[value_codes != 0L]
+  value_ranks <- category_ranks(domain(dense_values))[value_codes + 1L]
   if (is.unsorted(value_ranks)) {
     stop("Both domains are ordered, so the map must keep the order: going up the ",
          "source's order, the values may not go down.", call. = FALSE)
@@ -419,13 +442,13 @@ apply_category_map <- function(map, x) {
     return(take_map_values(map_values(map), index, map_undefined(map)))
   }
   if (is.character(x) || is.factor(x)) {
-    x <- as_categorical(as.character(x), source)
+    x <- encode(x, source)
   }
-  if (!is_categorical(x) || !same_category_domain(domain(x), source)) {
-    stop("This map looks up categories in the domain ", category_domain_label(source), ".",
+  if (!is_categorical_encoded(x) || !same_domain(domain(x), source)) {
+    stop("This map looks up categories in the domain ", domain_label(source), ".",
          call. = FALSE)
   }
-  take_map_values(map_values(map), categorical_codes(x) + as.integer(source$allows_undefined))
+  take_map_values(map_values(map), categorical_codes(x) + 1L)
 }
 
 #' @rdname category_map
@@ -435,13 +458,14 @@ compose_maps <- function(f, g, name = NULL) {
   ensure_is_category_map(g)
   g_values <- map_values(g)
   if (!map_value_type(g) %in% c("categorical", "naxp") ||
-      !same_category_domain(domain(g_values), map_source(f))) {
+      !same_domain(domain(g_values), map_source(f))) {
     stop("`compose_maps(f, g)` needs the values of `g` to be in the source of `f`.",
          call. = FALSE)
   }
   if (!is.null(name)) ensure_is_valid_name(name)
   # `g`'s unlisted keys get its `undefined`, which `f` then maps like any other
-  # value, so the single map's `undefined` is `f` of `g`'s.
+  # value, so the single map's `undefined` is `f` of `g`'s. A dense `g` stores
+  # its `undefined` in place, so `f` of its values covers it already.
   new_category_map(
     source = map_source(g),
     keys = map_keys(g),
@@ -458,17 +482,18 @@ compose_maps <- function(f, g, name = NULL) {
 #' @noRd
 print.category_map <- function(x, ...) {
   source <- map_source(x)
-  count <- if (is_naxp(source)) length(map_keys(x)) else NROW(map_values(x))
+  naxp_source <- is_naxp(source)
+  count <- if (naxp_source) length(map_keys(x)) else source$size
   cat(sprintf(
     "<category_map%s> %d %s from %s to %s\n",
     if (is.null(name(x))) "" else paste0(": ", name(x)),
     count,
-    if (is_naxp(source)) {
+    if (naxp_source) {
       if (count == 1L) "key" else "keys"
     } else {
-      if (count == 1L) "code" else "codes"
+      if (count == 1L) "category" else "categories"
     },
-    category_domain_label(source),
+    domain_label(source),
     describe_value_type(map_values(x), map_value_type(x))
   ))
   invisible(x)
@@ -476,7 +501,7 @@ print.category_map <- function(x, ...) {
 
 describe_value_type <- function(values, value_type) {
   switch(value_type,
-    categorical = paste0("categorical (", category_domain_label(domain(values)), ")"),
+    categorical = paste0("categorical (", domain_label(domain(values)), ")"),
     naxp = paste0("naxp ", naxp_pattern(naxp_of(values))),
     struct = paste0("struct (", paste(names(values), collapse = ", "), ")"),
     value_type

@@ -13,14 +13,14 @@ is_category_map(x)
 compose_maps(f, g, name = NULL)
 }
 \arguments{
-\item{keys}{The keys: a \code{naxp_encoded} vector or a \code{categorical}. They must
-be unique and may not include code 0.}
+\item{keys}{The keys: a \code{naxp_encoded} or \code{categorical_encoded} vector. They
+must be unique and may not include code 0.}
 
 \item{values}{The value for each key.}
 
 \item{undefined}{The value for code 0 and every unlisted key, of the same
 type as \code{values}: a single value, or a one-row data frame for a struct.
-\code{NULL} for zero.}
+\code{NULL} for the default, where the type has one.}
 
 \item{name}{An optional name for the map, read back by \code{\link[=name]{name()}}.}
 
@@ -36,67 +36,76 @@ function.
 }
 \description{
 A \code{category_map} gives a value for every code of a naxp, such as a
-postcode, or of a \link[=as_categorical]{categorical}. It is a function: a map
-\code{oac} applied to postcodes is \code{oac(postcodes)}.
+postcode, or of a \code{\link[=categorical]{categorical()}} domain. It is a function: a map \code{oac}
+applied to postcodes is \code{oac(postcodes)}.
 
-\code{keys} lists the codes the map gives values for, as a \code{naxp_encoded} vector
-or a \code{categorical}; the map's source is its naxp or its domain. \code{values}
-gives the value for each key, in the same order. It may be a logical,
-integer or double vector, a \code{naxp_encoded} vector, a \code{categorical}, or a
-data frame of those to give a struct of named fields. Logical and integer
-values may not be \code{NA}. Field names must start with a letter and use only
-ASCII letters, digits and underscores; they are case-sensitive.
+\code{keys} lists the codes the map gives values for, as a \code{naxp_encoded} or
+\code{categorical_encoded} vector, usually made with \code{\link[=encode]{encode()}}; the map's source
+is their domain. \code{values} gives the value for each key, in the same order.
+It may be a logical, integer or double vector, a \code{naxp_encoded} or
+\code{categorical_encoded} vector, or a data frame of those to give a struct of
+named fields. Logical and integer values may not be \code{NA}. Field names must
+start with a letter and use only ASCII letters, digits and underscores; they
+are case-sensitive.
 
-\code{undefined} is the value for code 0 and for every key the map does not
-list. It defaults to zero: \code{FALSE}, \code{0}, naxp code 0 or category code 0,
-and zero in every field of a struct. For a postcode, being listed is what
-makes it valid, so code 0 is never itself a key. Where the default would be
-category code 0 and the values' domain does not allow it, give \code{undefined}
-explicitly.
+\code{undefined} is the value for code 0, which is invalid, and for every key the
+map does not list. Code 0 is never itself a key. Its default depends on the
+type of the values:
+\itemize{
+\item a double gives \code{NaN};
+\item a \code{naxp_encoded} or \code{categorical_encoded} value gives code 0, which is
+invalid;
+\item a logical or an integer has no invalid value, so \code{undefined} must be
+given;
+\item a struct takes each field's default, so it must be given where any field
+is logical or integer.
+}
 
-Note that a double map used as a weight gives a weight of 0 by default to a
-key it does not list, which removes that record from the experience
-entirely.
+To treat invalid and unlisted keys as a category of their own, declare that
+category in the values' domain and give it as \code{undefined}.
 
 Where both the source and a categorical value domain are ordered, the map
 must keep the order: going up the source's order, the values may not go
-down the values' order.
+down the values' order. Invalid values take no part in the check.
 
 Applying a map to a vector of its source gives a vector of its values, or a
-data frame for a struct. A map keyed by a categorical also accepts text or a
-factor, which is matched to its source's labels. \code{f(g(x))} applies \code{g} and
-then \code{f}. To make a single map that does both, use \code{compose_maps(f, g)},
-which needs the values of \code{g} to be in the source of \code{f}. The result keeps
-nothing of \code{f} or \code{g}.
+data frame for a struct. A map from a \code{categorical} also accepts text or a
+factor, which is encoded in its source. \code{f(g(x))} applies \code{g} and then \code{f}.
+To make a single map that does both, use \code{compose_maps(f, g)}, which needs
+the values of \code{g} to be in the source of \code{f}. The result keeps nothing of
+\code{f} or \code{g}.
 }
 \examples{
-# Socio-economic types 1 to 3, remapped into two clusters.
-types <- category_domain(3, allows_undefined = TRUE, name = "types")
-clusters <- category_domain(labels = c("low", "high"), undefined_label = "none")
+# Socio-economic types 1 to 3, remapped into two clusters, with a third
+# cluster for types that are invalid or unlisted.
+types <- categorical(3, name = "types")
+clusters <- categorical(labels = c("low", "high", "unknown"), name = "clusters")
 to_cluster <- category_map(
-  keys = as_categorical(c(1, 2, 3), types),
-  values = as_categorical(c("low", "low", "high"), clusters),
+  keys = categorical_encoded(c(1, 2), types),
+  values = encode(c("low", "high"), clusters),
+  undefined = encode("unknown", clusters),
   name = "to_cluster"
 )
 to_cluster
-to_cluster(as_categorical(c(3, 0, 1), types))
+to_cluster(categorical_encoded(c(3, 0, 1), types))
 
 # A weight for each cluster, with 1 where none applies.
 weight <- category_map(
-  keys = as_categorical(c("low", "high"), clusters),
-  values = c(1.1, 0.9),
+  keys = encode(c("low", "high", "unknown"), clusters),
+  values = c(1.1, 0.9, 1),
   undefined = 1
 )
-weight(to_cluster(as_categorical(c(3, 0, 1), types)))
+weight(to_cluster(categorical_encoded(c(3, 0, 1), types)))
 
 # The same as a single map.
 type_weight <- compose_maps(weight, to_cluster)
-type_weight(as_categorical(c(3, 0, 1), types))
+type_weight(categorical_encoded(c(3, 0, 1), types))
 
-# A struct of two fields.
+# A struct of two fields. The logical field needs an explicit undefined.
 details <- category_map(
-  keys = as_categorical(c(1, 3), types),
-  values = data.frame(weight = c(0.9, 1.2), flagged = c(FALSE, TRUE))
+  keys = categorical_encoded(c(1, 3), types),
+  values = data.frame(weight = c(0.9, 1.2), flagged = c(FALSE, TRUE)),
+  undefined = data.frame(weight = NaN, flagged = FALSE)
 )
-details(as_categorical(c(1, 2, 3), types))
+details(categorical_encoded(c(1, 2, 3), types))
 }

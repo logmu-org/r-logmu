@@ -130,8 +130,8 @@ reference:
   - category
 - title: Categories and maps
   contents:
-  - category_domain
-  - as_categorical
+  - categorical
+  - encode
   - category_map
 - title: Naming objects
   contents:
